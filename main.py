@@ -1,4 +1,3 @@
-cat << 'EOF' > /sdcard/Download/main.py
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import matplotlib
@@ -130,4 +129,3 @@ def procesar_metrado_profesional(message):
         )
 
 bot.infinity_polling()
-EOF
