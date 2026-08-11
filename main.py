@@ -1,7 +1,24 @@
+cat << 'EOF' > /sdcard/Download/main.py
 import telebot
+import os
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import threading
 
 TOKEN = "8978402989:AAEcJEXuFFHQImwQVJph58ZmZpMpn7xSfqk"
 bot = telebot.TeleBot(TOKEN)
+
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot activo 24/7")
+
+def run_http_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_http_server, daemon=True).start()
 
 def calcular_concreto(b, l, h):
     v = b * l * h
@@ -34,3 +51,4 @@ def procesar_calculo(message):
         )
 
 bot.infinity_polling()
+EOF
