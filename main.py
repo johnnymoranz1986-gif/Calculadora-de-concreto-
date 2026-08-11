@@ -1,24 +1,31 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import matplotlib
-matplotlib.use('Agg') # Backend sin GUI para servidores en la nube
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 import io
 import os
 import math
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
+# Importación segura de Matplotlib para evitar que el bot se caiga si falla la librería gráfica
+HAS_MATPLOTLIB = True
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+except Exception as e:
+    HAS_MATPLOTLIB = False
+    print(f"Matplotlib no disponible: {e}")
+
 TOKEN = "8978402989:AAEcJEXuFFHQImwQVJph58ZmZpMpn7xSfqk"
 bot = telebot.TeleBot(TOKEN)
 
-# Servidor HTTP para Render
+# Servidor HTTP para Render (evita que se suspenda la instancia)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"Bot Estructural Activo en Render")
+        self.wfile.write(b"Bot Estructural Activo")
 
 def run_http_server():
     port = int(os.environ.get("PORT", 10000))
@@ -39,27 +46,21 @@ DOSIFICACIONES = {
 
 user_state = {}
 
-# ---------------------------------------------------------
-# GENERACIÓN DE CROQUIS DE SECCIÓN DE VIGA
-# ---------------------------------------------------------
 def generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp):
+    if not HAS_MATPLOTLIB:
+        return None
     fig, ax = plt.subplots(figsize=(4, 5))
-    
-    # Sección de concreto
     rect_viga = patches.Rectangle((0, 0), b, h, linewidth=2, edgecolor='#2D3748', facecolor='#CBD5E0')
     ax.add_patch(rect_viga)
 
-    # Estribo (4 cm recubrimiento a borde)
     rec_est = 4.0
     rect_estribo = patches.Rectangle((rec_est, rec_est), b - 2*rec_est, h - 2*rec_est, 
                                      linewidth=1.5, edgecolor='#E53E3E', facecolor='none', linestyle='--')
     ax.add_patch(rect_estribo)
 
-    # Acero en Tracción
     y_trac = rec
     ax.scatter([rec_est + 2, b/2, b - rec_est - 2], [y_trac, y_trac, y_trac], color='#1A202C', s=100, zorder=5, label=f"As = {As_req:.2f} cm²")
 
-    # Acero en Compresión
     y_comp = h - rec
     if tipo_viga == "DOBLEMENTE REFORZADA":
         ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#DD6B20', s=100, zorder=5, label=f"As' = {As_comp:.2f} cm²")
@@ -79,12 +80,9 @@ def generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
     buf.seek(0)
-    plt.close('all') # Libera memoria RAM en Render
+    plt.close('all')
     return buf
 
-# ---------------------------------------------------------
-# MENÚ PRINCIPAL
-# ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'menu'])
 def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
@@ -95,11 +93,11 @@ def mostrar_menu(message):
     )
     msg = (
         "🏗️ **SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)**\n\n"
-        "💡 **Escriba los datos directamente:**\n\n"
-        "• **Diseño de Viga (6 datos):**\n"
+        "💡 **Ingrese los datos directamente:**\n\n"
+        "• **Para Viga (6 datos):**\n"
         "`[b] [h] [f'c] [fy] [Mu] [Vu]`\n"
         "  *Ejemplo:* `30 50 210 4200 25 19`\n\n"
-        "• **Dosificación Concreto (4 o 5 datos):**\n"
+        "• **Para Concreto (4 o 5 datos):**\n"
         "`[Ancho] [Largo] [Altura] [Cant] [%Desp]`\n"
         "  *Ejemplo:* `0.30 0.40 3.50 4 5`"
     )
@@ -141,9 +139,6 @@ def callback_listener(call):
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
-# ---------------------------------------------------------
-# PROCESAMIENTO GENERAL Y DIRECTO DE MENSAJES
-# ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
     chat_id = message.chat.id
@@ -153,7 +148,7 @@ def procesar_mensajes(message):
     try:
         valores = [float(x) for x in partes]
     except ValueError:
-        bot.reply_to(message, "⚠️ **Entrada no válida.** Envíe solo números separados por espacio.", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ **Entrada no válida.** Envíe únicamente números separados por espacios.", parse_mode="Markdown")
         return
 
     # DISEÑO DE VIGA (6 DATOS)
@@ -173,7 +168,8 @@ def procesar_mensajes(message):
         as_b = (0.85 * fc * ab * b) / fy
         as_max = 0.75 * as_b
 
-        Mu_max_simp = phi_flex * as_max * fy * (d - ((as_max * fy) / (0.85 * fc * b)) / 2.0) / 100000.0
+        a_max_calc = (as_max * fy) / (0.85 * fc * b)
+        Mu_max_simp = phi_flex * as_max * fy * (d - a_max_calc / 2.0) / 100000.0
         Mu_kgcm = Mu_tnm * 100000.0
 
         if Mu_tnm <= Mu_max_simp:
@@ -233,15 +229,16 @@ def procesar_mensajes(message):
             f"• **Distribución Sísmica Recomendada:**\n`{distribucion_estribos}`"
         )
 
-        # Envío del texto primero
+        # Enviar informe en texto obligatoriamente primero
         bot.reply_to(message, informe, parse_mode="Markdown")
 
-        # Intentar enviar el gráfico con try/except aislado
+        # Intentar enviar gráfico sin riesgo de colapsar la respuesta
         try:
             buf = generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp)
-            bot.send_photo(chat_id, photo=buf, caption=f"📊 Croquis de Armado - Viga {b:.0f}×{h:.0f} cm")
+            if buf:
+                bot.send_photo(chat_id, photo=buf, caption=f"📊 Croquis de Armado - Viga {b:.0f}×{h:.0f} cm")
         except Exception as e:
-            print(f"Error con gráfico: {e}")
+            print(f"Graficador omitido: {e}")
 
     # DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
     elif len(valores) in [4, 5]:
@@ -280,4 +277,6 @@ def procesar_mensajes(message):
             parse_mode="Markdown"
         )
 
-bot.infinity_polling()
+# Bucle infinito con reconexión automática ante cortes de red en Render
+if __name__ == '__main__':
+    bot.infinity_polling(timeout=20, long_polling_timeout=10)
