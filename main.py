@@ -1,9 +1,29 @@
 import os
 import math
 import time
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+# --- SERVIDOR HTTP PARA HEALTH CHECK DE RENDER ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b"Bot activo y escuchando.")
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"Servidor HTTP para Render activo en puerto {port}")
+    server.serve_forever()
+
+# Iniciar servidor HTTP en un hilo independiente
+threading.Thread(target=run_health_check_server, daemon=True).start()
+
+# --- CONFIGURACIÓN DEL BOT ---
 TOKEN = os.environ.get("BOT_TOKEN", "8978402989:AAH5pIvfI_76cePT7PY6pziMkVLcoN2kxL8")
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
@@ -87,9 +107,6 @@ def procesar_mensajes(message):
             bot.reply_to(message, "⚠️ Entrada no válida. Envíe valores numéricos separados por espacio.")
             return
 
-        # ----------------------------------------------------
-        # CASO 1: DISEÑO ESTRUCTURAL DE VIGA (6 DATOS)
-        # ----------------------------------------------------
         if len(valores) == 6:
             b, h, fc, fy, Mu_tnm, Vu_tn = valores
             
@@ -149,7 +166,6 @@ def procesar_mensajes(message):
                 corte_msg = f"Requiere estribos ø 3/8\" c/ {s_estribo:.1f} cm."
 
             distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremo"
-
             comp_line = f"• Acero Compresión (As'): {As_comp:.2f} cm²\n" if As_comp > 0 else ""
 
             informe = (
@@ -171,9 +187,6 @@ def procesar_mensajes(message):
             )
             bot.reply_to(message, informe)
 
-        # ----------------------------------------------------
-        # CASO 2: DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
-        # ----------------------------------------------------
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
             desp_pct = valores[4] if len(valores) == 5 else 5.0
@@ -215,15 +228,18 @@ def procesar_mensajes(message):
 
 if __name__ == '__main__':
     print("Iniciando servicio del Bot en Render...")
+    
+    # Eliminar cualquier webhook previo para liberar los mensajes pendientes
     try:
         bot.remove_webhook(drop_pending_updates=True)
         time.sleep(2)
     except Exception as e:
         print(f"Aviso al limpiar webhook: {e}")
 
+    # Bucle infinito de polling
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
         except Exception as e:
-            print(f"Bucle de polling reanudado tras excepción: {e}")
+            print(f"Error en polling, reintentando: {e}")
             time.sleep(3)
