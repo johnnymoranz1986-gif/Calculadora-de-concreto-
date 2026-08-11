@@ -1,42 +1,14 @@
-import telebot
-from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 import math
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import threading
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Token actualizado
-TOKEN = "8978402989:AAFCx_uLhJcBg1eI0GyC7gAUH5UbgSl3E2g"
+# Token asignado
+TOKEN = os.environ.get("BOT_TOKEN", "8978402989:AAH5pIvfI_76cePT7PY6pziMkVLcoN2kxL8")
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
-# ---------------------------------------------------------
-# 1. SERVIDOR WEB EN SEGUNDO PLANO (REQUERIDO POR RENDER)
-# ---------------------------------------------------------
-class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b"Bot Estructural Activo y Operativo")
-
-    def log_message(self, format, *args):
-        return  # Desactiva logs HTTP para no saturar la consola
-
-def run_http_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
-    print(f"Servidor HTTP iniciado en puerto {port}")
-    server.serve_forever()
-
-# Iniciar servidor web en hilo dedicado
-t = threading.Thread(target=run_http_server)
-t.daemon = True
-t.start()
-
-# ---------------------------------------------------------
-# 2. BASE DE DATOS Y ESTADOS DE USUARIO
-# ---------------------------------------------------------
+# Tabla de dosificaciones por m³ de concreto (Norma Peruana RNE)
 DOSIFICACIONES = {
     '140': {'cemento': 7.01, 'arena': 0.51, 'piedra': 0.64, 'agua': 0.184},
     '175': {'cemento': 8.43, 'arena': 0.54, 'piedra': 0.55, 'agua': 0.185},
@@ -48,9 +20,6 @@ DOSIFICACIONES = {
 
 user_state = {}
 
-# ---------------------------------------------------------
-# 3. MANEJO DE COMANDOS Y MENÚS
-# ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'menu'])
 def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
@@ -107,9 +76,6 @@ def callback_listener(call):
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
-# ---------------------------------------------------------
-# 4. PROCESAMIENTO DE CÁLCULOS
-# ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
     try:
@@ -120,12 +86,14 @@ def procesar_mensajes(message):
         try:
             valores = [float(x) for x in partes]
         except ValueError:
-            bot.reply_to(message, "⚠️ *Entrada no válida.* Envíe números separados por espacio.", parse_mode="Markdown")
+            bot.reply_to(message, "⚠️ *Entrada no válida.* Envíe valores numéricos separados por espacio.", parse_mode="Markdown")
             return
 
-        # CÁLCULO DE VIGA (6 DATOS)
+        # ----------------------------------------------------
+        # CASO 1: DISEÑO ESTRUCTURAL DE VIGA (6 DATOS)
+        # ----------------------------------------------------
         if len(valores) == 6:
-            b, h, fc, fy, Mu_tnm, Vu_tn = valores[0], valores[1], valores[2], valores[3], valores[4], valores[5]
+            b, h, fc, fy, Mu_tnm, Vu_tn = valores
             
             rec = 6.0
             d = h - rec
@@ -134,6 +102,7 @@ def procesar_mensajes(message):
 
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
 
+            # Acero mínimo y cuantía balanceada
             as_min = max((0.7 * math.sqrt(fc) / fy) * b * d, (14.0 / fy) * b * d)
             cb = (6000.0 / (6000.0 + fy)) * d
             ab = beta1 * cb
@@ -144,13 +113,16 @@ def procesar_mensajes(message):
             Mu_max_simp = phi_flex * as_max * fy * (d - a_max_calc / 2.0) / 100000.0
             Mu_kgcm = Mu_tnm * 100000.0
 
+            # --- FLEXIÓN ---
             if Mu_tnm <= Mu_max_simp:
                 tipo_viga = "SIMPLEMENTE REFORZADA"
-                A_q = 0.5 * phi_flex * (fy**2) / (0.85 * fc * b)
-                B_q = - phi_flex * fy * d
-                C_q = Mu_kgcm
-                disc = B_q**2 - 4 * A_q * C_q
-                As_calc = (-B_q - math.sqrt(disc)) / (2 * A_q)
+                term = 1.0 - (2.0 * Mu_kgcm) / (phi_flex * b * (d**2) * 0.85 * fc)
+                
+                if term < 0:
+                    bot.reply_to(message, "❌ *Error:* El momento actuante supera la capacidad física de la sección de concreto.")
+                    return
+                
+                As_calc = (0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term))
                 As_req = max(As_calc, as_min)
                 As_comp = 0.0
             else:
@@ -163,25 +135,25 @@ def procesar_mensajes(message):
                 As_req = As1 + As2
                 As_comp = As2
 
-            # CORTE
+            # --- CORTE ---
             Vc = 0.53 * math.sqrt(fc) * b * d
             phi_Vc = phi_corte * Vc / 1000.0
             Vu_kg = Vu_tn * 1000.0
 
             if Vu_tn <= 0.5 * phi_Vc:
-                corte_msg = "No requiere estribos por cálculo (mínimo por norma)."
+                corte_msg = "No requiere estribos por cálculo (usar mínimo por norma)."
                 s_estribo = 22.0
             elif Vu_tn <= phi_Vc:
                 corte_msg = "Requiere estribos mínimos por norma RNE E.060."
                 s_estribo = min(d / 2, 30.0)
             else:
                 Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
-                Av = 2 * 0.71
+                Av = 2 * 0.71  # 2 ramas de ø 3/8"
                 s_calc = (Av * fy * d) / Vs_req
                 s_estribo = min(s_calc, d / 2, 30.0)
-                corte_msg = f"Requiere estribos ø 3/8\" cada `{s_estribo:.1f}` cm."
+                corte_msg = f"Requiere estribos ø 3/8\" c/ `{s_estribo:.1f}` cm."
 
-            distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremos"
+            distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremo"
 
             informe = (
                 f"📐 *DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)*\n"
@@ -200,14 +172,15 @@ def procesar_mensajes(message):
                 f"• *Estado:* {corte_msg}\n"
                 f"• *Distribución Sísmica Recomendada:*\n`{distribucion_estribos}`"
             )
-
             bot.reply_to(message, informe, parse_mode="Markdown")
 
-        # CÁLCULO DE CONCRETO (4 O 5 DATOS)
+        # ----------------------------------------------------
+        # CASO 2: DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
+        # ----------------------------------------------------
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
             desp_pct = valores[4] if len(valores) == 5 else 5.0
-            
+
             fc = user_state.get(chat_id, {}).get('fc', '210')
             dosi = DOSIFICACIONES.get(fc, DOSIFICACIONES['210'])
             factor = 1 + (desp_pct / 100.0)
@@ -235,32 +208,29 @@ def procesar_mensajes(message):
             bot.reply_to(
                 message,
                 "⚠️ *Formato no reconocido.*\n\n"
-                "Envíe 6 valores para Viga: `30 60 210 4200 20 12`\n"
-                "O 5 valores para Concreto: `0.30 0.40 3.50 4 5`",
+                "• Viga (6 datos): `30 60 210 4200 20 12`\n"
+                "• Concreto (4-5 datos): `0.30 0.40 3.50 4 5`",
                 parse_mode="Markdown"
             )
 
     except Exception as err:
         print(f"Error procesando mensaje: {err}")
+        bot.reply_to(message, f"⚠️ *Error interno en el cálculo:* `{err}`", parse_mode="Markdown")
 
-# ---------------------------------------------------------
-# 5. INICIALIZACIÓN A PRUEBA DE FALLOS Y REINTENTOS
-# ---------------------------------------------------------
 if __name__ == '__main__':
-    print("Iniciando Bot de Telegram...")
+    print("Iniciando servicio del Bot en Render...")
     
-    # Limpieza previa de peticiones colgadas
+    # Limpieza de webhook previo para evitar conflictos
     try:
-        bot.remove_webhook()
+        bot.remove_webhook(drop_pending_updates=True)
         time.sleep(2)
     except Exception as e:
-        print(f"Aviso al liberar webhook: {e}")
+        print(f"Aviso al limpiar webhook: {e}")
 
-    # Bucle infinito para auto-recuperar la conexión ante caídas
+    # Bucle continuo con manejo de caídas de red
     while True:
         try:
-            bot.infinity_polling(skip_pending=True, timeout=30, long_polling_timeout=30)
+            bot.polling(none_stop=True, interval=1, timeout=20)
         except Exception as e:
-            print(f"Error o conflicto detectado: {e}")
-            print("Reintentando en 5 segundos...")
-            time.sleep(5)
+            print(f"Bucle de polling reanudado tras excepción: {e}")
+            time.sleep(3)
