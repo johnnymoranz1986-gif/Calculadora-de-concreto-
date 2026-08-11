@@ -1,39 +1,36 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-import io
 import os
 import math
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-# Importación segura de Matplotlib para no bloquear el procesador en Render
-HAS_MATPLOTLIB = True
-try:
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as patches
-except Exception as e:
-    HAS_MATPLOTLIB = False
-
 TOKEN = "8978402989:AAEcJEXuFFHQImwQVJph58ZmZpMpn7xSfqk"
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
-# Servidor HTTP para Render (mantiene viva la aplicación)
+# 1. SERVIDOR WEB EN SEGUNDO PLANO (REQUERIDO POR RENDER)
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
+        self.send_header('Content-type', 'text/html')
         self.end_headers()
-        self.wfile.write(b"Bot Estructural Activo")
+        self.wfile.write(b"Bot Estructural Activo y Operativo")
+
+    def log_message(self, format, *args):
+        return  # Desactiva logs HTTP para no saturar la consola
 
 def run_http_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Servidor HTTP iniciado en puerto {port}")
     server.serve_forever()
 
-threading.Thread(target=run_http_server, daemon=True).start()
+# Iniciar servidor web en hilo dedicado
+t = threading.Thread(target=run_http_server)
+t.daemon = True
+t.start()
 
-# Tabla de dosificaciones por m³ (RNE Perú)
+# 2. BASE DE DATOS Y ESTADOS
 DOSIFICACIONES = {
     '140': {'cemento': 7.01, 'arena': 0.51, 'piedra': 0.64, 'agua': 0.184},
     '175': {'cemento': 8.43, 'arena': 0.54, 'piedra': 0.55, 'agua': 0.185},
@@ -45,47 +42,7 @@ DOSIFICACIONES = {
 
 user_state = {}
 
-def generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp):
-    if not HAS_MATPLOTLIB:
-        return None
-    try:
-        fig, ax = plt.subplots(figsize=(4, 5))
-        rect_viga = patches.Rectangle((0, 0), b, h, linewidth=2, edgecolor='#2D3748', facecolor='#CBD5E0')
-        ax.add_patch(rect_viga)
-
-        rec_est = 4.0
-        rect_estribo = patches.Rectangle((rec_est, rec_est), b - 2*rec_est, h - 2*rec_est, 
-                                         linewidth=1.5, edgecolor='#E53E3E', facecolor='none', linestyle='--')
-        ax.add_patch(rect_estribo)
-
-        y_trac = rec
-        ax.scatter([rec_est + 2, b/2, b - rec_est - 2], [y_trac, y_trac, y_trac], color='#1A202C', s=100, zorder=5, label=f"As = {As_req:.2f} cm²")
-
-        y_comp = h - rec
-        if tipo_viga == "DOBLEMENTE REFORZADA":
-            ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#DD6B20', s=100, zorder=5, label=f"As' = {As_comp:.2f} cm²")
-        else:
-            ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#718096', s=70, zorder=5, label="2 ø 3/8\" (Montaje)")
-
-        ax.set_xlim(-8, b + 12)
-        ax.set_ylim(-8, h + 12)
-        ax.set_aspect('equal')
-        ax.axis('off')
-
-        plt.title(f"Viga {b:.0f}×{h:.0f} cm - RNE E.060", fontsize=10, fontweight='bold', pad=8)
-        ax.text(b/2, -5, f"b = {b:.0f} cm", ha='center', fontweight='bold', color='#2D3748')
-        ax.text(-5, h/2, f"h = {h:.0f} cm", va='center', rotation='vertical', fontweight='bold', color='#2D3748')
-        ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.2), fontsize=7, frameon=False)
-
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-        buf.seek(0)
-        plt.close('all')
-        return buf
-    except Exception as e:
-        print(f"Error generando gráfico: {e}")
-        return None
-
+# 3. COMANDOS PRINCIPALES
 @bot.message_handler(commands=['start', 'menu'])
 def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
@@ -142,6 +99,7 @@ def callback_listener(call):
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
+# 4. PROCESAMIENTO DE MENSAJES NUMÉRICOS
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
     try:
@@ -235,11 +193,6 @@ def procesar_mensajes(message):
 
             bot.reply_to(message, informe, parse_mode="Markdown")
 
-            # Intenta enviar gráfico si está disponible
-            buf = generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp)
-            if buf:
-                bot.send_photo(chat_id, photo=buf, caption=f"📊 Croquis de Armado - Viga {b:.0f}×{h:.0f} cm")
-
         # DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
@@ -280,6 +233,8 @@ def procesar_mensajes(message):
     except Exception as err:
         print(f"Error procesando mensaje: {err}")
 
-# Bucle indestructible para Render
+# 5. POLLING RESILIENTE
 if __name__ == '__main__':
-    bot.infinity_polling(skip_pending=True, timeout=30, long_polling_timeout=15)
+    print("Iniciando Bot de Telegram...")
+    bot.remove_webhook()
+    bot.infinity_polling(skip_pending=True)
