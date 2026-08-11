@@ -4,11 +4,9 @@ import time
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Token asignado
 TOKEN = os.environ.get("BOT_TOKEN", "8978402989:AAH5pIvfI_76cePT7PY6pziMkVLcoN2kxL8")
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
-# Tabla de dosificaciones por m³ de concreto (Norma Peruana RNE)
 DOSIFICACIONES = {
     '140': {'cemento': 7.01, 'arena': 0.51, 'piedra': 0.64, 'agua': 0.184},
     '175': {'cemento': 8.43, 'arena': 0.54, 'piedra': 0.55, 'agua': 0.185},
@@ -29,16 +27,16 @@ def mostrar_menu(message):
         InlineKeyboardButton("📦 Cubicación y Dosificación de Concreto", callback_data="modo_concreto")
     )
     msg = (
-        "🏗️ *SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)*\n\n"
-        "💡 *Ingrese los datos directamente:*\n\n"
-        "• *Para Viga (6 datos):*\n"
-        "`[b] [h] [f'c] [fy] [Mu] [Vu]`\n"
-        "  *Ejemplo:* `30 60 210 4200 20 12`\n\n"
-        "• *Para Concreto (4 o 5 datos):*\n"
-        "`[Ancho] [Largo] [Altura] [Cant] [%Desp]`\n"
-        "  *Ejemplo:* `0.30 0.40 3.50 4 5`"
+        "🏗️ SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)\n\n"
+        "💡 Ingrese los datos directamente:\n\n"
+        "• Para Viga (6 datos):\n"
+        "[b] [h] [f'c] [fy] [Mu] [Vu]\n"
+        "  Ejemplo: 30 60 210 4200 20 12\n\n"
+        "• Para Concreto (4 o 5 datos):\n"
+        "[Ancho] [Largo] [Altura] [Cant] [%Desp]\n"
+        "  Ejemplo: 0.30 0.40 3.50 4 5"
     )
-    bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
+    bot.reply_to(message, msg, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
@@ -46,12 +44,12 @@ def callback_listener(call):
     if call.data == "modo_viga":
         user_state[chat_id] = {'modo': 'viga'}
         msg = (
-            "📐 *DISEÑO ESTRUCTURAL DE VIGAS (RNE E.060)*\n\n"
+            "📐 DISEÑO ESTRUCTURAL DE VIGAS (RNE E.060)\n\n"
             "Envíe los 6 valores numéricos separados por espacio:\n"
-            "`[b] [h] [f'c] [fy] [Mu] [Vu]`\n\n"
-            "📌 *Ejemplo:* `30 60 210 4200 20 12`"
+            "[b] [h] [f'c] [fy] [Mu] [Vu]\n\n"
+            "📌 Ejemplo: 30 60 210 4200 20 12"
         )
-        bot.send_message(chat_id, msg, parse_mode="Markdown")
+        bot.send_message(chat_id, msg)
         
     elif call.data == "modo_concreto":
         markup = InlineKeyboardMarkup(row_width=2)
@@ -69,12 +67,12 @@ def callback_listener(call):
         fc = call.data.split("_")[1]
         user_state[chat_id] = {'modo': 'concreto', 'fc': fc}
         msg = (
-            f"✅ *Concreto Seleccionado:* f'c = {fc} kg/cm²\n\n"
+            f"✅ Concreto Seleccionado: f'c = {fc} kg/cm²\n\n"
             "Envía las dimensiones:\n"
-            "`[Ancho] [Largo] [Altura] [Cantidad] [% Desperdicio]`\n"
-            "Ejemplo: `0.30 0.40 3.50 4 5`"
+            "[Ancho] [Largo] [Altura] [Cantidad] [% Desperdicio]\n"
+            "Ejemplo: 0.30 0.40 3.50 4 5"
         )
-        bot.send_message(chat_id, msg, parse_mode="Markdown")
+        bot.send_message(chat_id, msg)
 
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
@@ -86,7 +84,7 @@ def procesar_mensajes(message):
         try:
             valores = [float(x) for x in partes]
         except ValueError:
-            bot.reply_to(message, "⚠️ *Entrada no válida.* Envíe valores numéricos separados por espacio.", parse_mode="Markdown")
+            bot.reply_to(message, "⚠️ Entrada no válida. Envíe valores numéricos separados por espacio.")
             return
 
         # ----------------------------------------------------
@@ -102,7 +100,6 @@ def procesar_mensajes(message):
 
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
 
-            # Acero mínimo y cuantía balanceada
             as_min = max((0.7 * math.sqrt(fc) / fy) * b * d, (14.0 / fy) * b * d)
             cb = (6000.0 / (6000.0 + fy)) * d
             ab = beta1 * cb
@@ -113,13 +110,12 @@ def procesar_mensajes(message):
             Mu_max_simp = phi_flex * as_max * fy * (d - a_max_calc / 2.0) / 100000.0
             Mu_kgcm = Mu_tnm * 100000.0
 
-            # --- FLEXIÓN ---
             if Mu_tnm <= Mu_max_simp:
                 tipo_viga = "SIMPLEMENTE REFORZADA"
                 term = 1.0 - (2.0 * Mu_kgcm) / (phi_flex * b * (d**2) * 0.85 * fc)
                 
                 if term < 0:
-                    bot.reply_to(message, "❌ *Error:* El momento actuante supera la capacidad física de la sección de concreto.")
+                    bot.reply_to(message, "❌ Error: El momento actuante supera la capacidad física de la sección de concreto.")
                     return
                 
                 As_calc = (0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term))
@@ -135,7 +131,6 @@ def procesar_mensajes(message):
                 As_req = As1 + As2
                 As_comp = As2
 
-            # --- CORTE ---
             Vc = 0.53 * math.sqrt(fc) * b * d
             phi_Vc = phi_corte * Vc / 1000.0
             Vu_kg = Vu_tn * 1000.0
@@ -148,31 +143,33 @@ def procesar_mensajes(message):
                 s_estribo = min(d / 2, 30.0)
             else:
                 Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
-                Av = 2 * 0.71  # 2 ramas de ø 3/8"
+                Av = 2 * 0.71
                 s_calc = (Av * fy * d) / Vs_req
                 s_estribo = min(s_calc, d / 2, 30.0)
-                corte_msg = f"Requiere estribos ø 3/8\" c/ `{s_estribo:.1f}` cm."
+                corte_msg = f"Requiere estribos ø 3/8\" c/ {s_estribo:.1f} cm."
 
             distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremo"
 
+            comp_line = f"• Acero Compresión (As'): {As_comp:.2f} cm²\n" if As_comp > 0 else ""
+
             informe = (
-                f"📐 *DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)*\n"
+                f"📐 DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 *Sección:* {b:.0f} × {h:.0f} cm | Peralte efe. (d): `{d:.1f} cm`\n"
-                f"🔹 *Materiales:* f'c = {fc:.0f} kg/cm² | fy = {fy:.0f} kg/cm²\n"
-                f"🔹 *Solicitaciones:* Mu = `{Mu_tnm:.2f} tn·m` | Vu = `{Vu_tn:.2f} tn`\n\n"
-                f"📌 *1. DISEÑO POR FLEXIÓN:*\n"
-                f"• *Tipo:* `{tipo_viga}`\n"
-                f"• Mu Máx. Simplemente Ref.: `{Mu_max_simp:.2f} tn·m`\n"
-                f"• Acero Mínimo (As_min): `{as_min:.2f} cm²`\n"
-                f"• *Acero Tracción (As):* `{As_req:.2f} cm²`\n" +
-                (f"• *Acero Compresión (As'):* `{As_comp:.2f} cm²`\n" if As_comp > 0 else "") +
-                f"\n📌 *2. DISEÑO POR CORTE:*\n"
-                f"• Resistencia Concreto (phi Vc): `{phi_Vc:.2f} tn`\n"
-                f"• *Estado:* {corte_msg}\n"
-                f"• *Distribución Sísmica Recomendada:*\n`{distribucion_estribos}`"
+                f"🔹 Sección: {b:.0f} × {h:.0f} cm | Peralte efe. (d): {d:.1f} cm\n"
+                f"🔹 Materiales: f'c = {fc:.0f} kg/cm² | fy = {fy:.0f} kg/cm²\n"
+                f"🔹 Solicitaciones: Mu = {Mu_tnm:.2f} tn·m | Vu = {Vu_tn:.2f} tn\n\n"
+                f"📌 1. DISEÑO POR FLEXIÓN:\n"
+                f"• Tipo: {tipo_viga}\n"
+                f"• Mu Máx. Simplemente Ref.: {Mu_max_simp:.2f} tn·m\n"
+                f"• Acero Mínimo (As_min): {as_min:.2f} cm²\n"
+                f"• Acero Tracción (As): {As_req:.2f} cm²\n"
+                f"{comp_line}\n"
+                f"📌 2. DISEÑO POR CORTE:\n"
+                f"• Resistencia Concreto (phi Vc): {phi_Vc:.2f} tn\n"
+                f"• Estado: {corte_msg}\n"
+                f"• Distribución Sísmica Recomendada:\n{distribucion_estribos}"
             )
-            bot.reply_to(message, informe, parse_mode="Markdown")
+            bot.reply_to(message, informe)
 
         # ----------------------------------------------------
         # CASO 2: DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
@@ -193,41 +190,37 @@ def procesar_mensajes(message):
             agua = vol_tot * dosi['agua'] * 1000
 
             resumen = (
-                f"📄 *DOSIFICACIÓN DE CONCRETO (f'c = {fc} kg/cm²)*\n"
+                f"📄 DOSIFICACIÓN DE CONCRETO (f'c = {fc} kg/cm²)\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📦 *Volumen Total (+{desp_pct:.1f}% desperdicio):* `{vol_tot:.2f} m³`\n\n"
-                f"🛠️ *Insumos Requeridos:*\n"
-                f"• Cemento: `{cemento:.1f}` bolsas\n"
-                f"• Arena Gruesa: `{arena:.2f}` m³\n"
-                f"• Piedra Chancada: `{piedra:.2f}` m³\n"
-                f"• Agua: `{agua:.0f}` Litros"
+                f"📦 Volumen Total (+{desp_pct:.1f}% desperdicio): {vol_tot:.2f} m³\n\n"
+                f"🛠️ Insumos Requeridos:\n"
+                f"• Cemento: {cemento:.1f} bolsas\n"
+                f"• Arena Gruesa: {arena:.2f} m³\n"
+                f"• Piedra Chancada: {piedra:.2f} m³\n"
+                f"• Agua: {agua:.0f} Litros"
             )
-            bot.reply_to(message, resumen, parse_mode="Markdown")
+            bot.reply_to(message, resumen)
 
         else:
             bot.reply_to(
                 message,
-                "⚠️ *Formato no reconocido.*\n\n"
-                "• Viga (6 datos): `30 60 210 4200 20 12`\n"
-                "• Concreto (4-5 datos): `0.30 0.40 3.50 4 5`",
-                parse_mode="Markdown"
+                "⚠️ Formato no reconocido.\n\n"
+                "• Viga (6 datos): 30 60 210 4200 20 12\n"
+                "• Concreto (4-5 datos): 0.30 0.40 3.50 4 5"
             )
 
     except Exception as err:
         print(f"Error procesando mensaje: {err}")
-        bot.reply_to(message, f"⚠️ *Error interno en el cálculo:* `{err}`", parse_mode="Markdown")
+        bot.reply_to(message, f"⚠️ Error interno en el cálculo: {err}")
 
 if __name__ == '__main__':
     print("Iniciando servicio del Bot en Render...")
-    
-    # Limpieza de webhook previo para evitar conflictos
     try:
         bot.remove_webhook(drop_pending_updates=True)
         time.sleep(2)
     except Exception as e:
         print(f"Aviso al limpiar webhook: {e}")
 
-    # Bucle continuo con manejo de caídas de red
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
