@@ -1,7 +1,7 @@
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('Agg') # Backend sin GUI para servidores en la nube
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import io
@@ -43,43 +43,43 @@ user_state = {}
 # GENERACIÓN DE CROQUIS DE SECCIÓN DE VIGA
 # ---------------------------------------------------------
 def generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp):
-    fig, ax = plt.subplots(figsize=(5, 6))
+    fig, ax = plt.subplots(figsize=(4, 5))
     
-    # Dibujo de la sección de concreto
+    # Sección de concreto
     rect_viga = patches.Rectangle((0, 0), b, h, linewidth=2, edgecolor='#2D3748', facecolor='#CBD5E0')
     ax.add_patch(rect_viga)
 
-    # Estribo (recubrimiento de 4 cm a borde de estribo)
+    # Estribo (4 cm recubrimiento a borde)
     rec_est = 4.0
     rect_estribo = patches.Rectangle((rec_est, rec_est), b - 2*rec_est, h - 2*rec_est, 
                                      linewidth=1.5, edgecolor='#E53E3E', facecolor='none', linestyle='--')
     ax.add_patch(rect_estribo)
 
-    # Dibujo de Varillas Longitudinales Tracción (Abajo)
+    # Acero en Tracción
     y_trac = rec
-    ax.scatter([rec_est + 2, b/2, b - rec_est - 2], [y_trac, y_trac, y_trac], color='#1A202C', s=120, zorder=5, label=f"As = {As_req:.2f} cm² (Tracción)")
+    ax.scatter([rec_est + 2, b/2, b - rec_est - 2], [y_trac, y_trac, y_trac], color='#1A202C', s=100, zorder=5, label=f"As = {As_req:.2f} cm²")
 
-    # Varillas en Compresión (Arriba)
+    # Acero en Compresión
     y_comp = h - rec
     if tipo_viga == "DOBLEMENTE REFORZADA":
-        ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#DD6B20', s=120, zorder=5, label=f"As' = {As_comp:.2f} cm² (Compresión)")
+        ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#DD6B20', s=100, zorder=5, label=f"As' = {As_comp:.2f} cm²")
     else:
-        ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#718096', s=80, zorder=5, label="2 ø 3/8\" (Montaje)")
+        ax.scatter([rec_est + 2, b - rec_est - 2], [y_comp, y_comp], color='#718096', s=70, zorder=5, label="2 ø 3/8\" (Montaje)")
 
     ax.set_xlim(-8, b + 12)
     ax.set_ylim(-8, h + 12)
     ax.set_aspect('equal')
     ax.axis('off')
 
-    plt.title(f"Detalle de Armado - Viga {b:.0f}×{h:.0f} cm\n(Norma RNE E.060)", fontsize=11, fontweight='bold', pad=10)
+    plt.title(f"Viga {b:.0f}×{h:.0f} cm - RNE E.060", fontsize=10, fontweight='bold', pad=8)
     ax.text(b/2, -5, f"b = {b:.0f} cm", ha='center', fontweight='bold', color='#2D3748')
     ax.text(-5, h/2, f"h = {h:.0f} cm", va='center', rotation='vertical', fontweight='bold', color='#2D3748')
-    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.15), fontsize=8, frameon=True)
+    ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.2), fontsize=7, frameon=False)
 
     buf = io.BytesIO()
-    plt.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.savefig(buf, format='png', dpi=120, bbox_inches='tight')
     buf.seek(0)
-    plt.close(fig)
+    plt.close('all') # Libera memoria RAM en Render
     return buf
 
 # ---------------------------------------------------------
@@ -95,10 +95,12 @@ def mostrar_menu(message):
     )
     msg = (
         "🏗️ **SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)**\n\n"
-        "💡 **Puedes escribir directamente los datos:**\n"
-        "• Para Viga (6 datos): `b h f'c fy Mu Vu`\n"
-        "  *Ejemplo:* `30 50 210 4200 14.5 8.5`\n\n"
-        "• Para Concreto (4 o 5 datos): `Ancho Largo Altura Cantid [%Desp]`\n"
+        "💡 **Escriba los datos directamente:**\n\n"
+        "• **Diseño de Viga (6 datos):**\n"
+        "`[b] [h] [f'c] [fy] [Mu] [Vu]`\n"
+        "  *Ejemplo:* `30 50 210 4200 25 19`\n\n"
+        "• **Dosificación Concreto (4 o 5 datos):**\n"
+        "`[Ancho] [Largo] [Altura] [Cant] [%Desp]`\n"
         "  *Ejemplo:* `0.30 0.40 3.50 4 5`"
     )
     bot.reply_to(message, msg, reply_markup=markup, parse_mode="Markdown")
@@ -112,8 +114,7 @@ def callback_listener(call):
             "📐 **DISEÑO ESTRUCTURAL DE VIGAS (RNE E.060)**\n\n"
             "Envíe los 6 valores numéricos separados por espacio:\n"
             "`[b] [h] [f'c] [fy] [Mu] [Vu]`\n\n"
-            "📌 **Ejemplo para Viga 30×50 cm, f'c=210, fy=4200, Mu=14.5 tn·m, Vu=8.5 tn:**\n"
-            "`30 50 210 4200 14.5 8.5`"
+            "📌 **Ejemplo:** `30 50 210 4200 25 19`"
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
         
@@ -141,7 +142,7 @@ def callback_listener(call):
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
 # ---------------------------------------------------------
-# PROCESAMIENTO AUTOMÁTICO DE ENTRADAS
+# PROCESAMIENTO GENERAL Y DIRECTO DE MENSAJES
 # ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
@@ -149,35 +150,30 @@ def procesar_mensajes(message):
     texto = message.text.strip().replace(',', '.')
     partes = texto.split()
 
-    # Intentar convertir todos los elementos a números float
     try:
         valores = [float(x) for x in partes]
     except ValueError:
-        bot.reply_to(message, "⚠️ **Entrada no válida.** Debe enviar únicamente números separados por espacios.", parse_mode="Markdown")
+        bot.reply_to(message, "⚠️ **Entrada no válida.** Envíe solo números separados por espacio.", parse_mode="Markdown")
         return
 
-    # SI SE ENVIARON 6 VALORES -> ES UN DISEÑO DE VIGA
+    # DISEÑO DE VIGA (6 DATOS)
     if len(valores) == 6:
         b, h, fc, fy, Mu_tnm, Vu_tn = valores[0], valores[1], valores[2], valores[3], valores[4], valores[5]
         
-        rec = 6.0 # cm a eje
+        rec = 6.0
         d = h - rec
         phi_flex = 0.90
         phi_corte = 0.85
 
         beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
 
-        # Acero mínimo y máximo (RNE E.060)
         as_min = max((0.7 * math.sqrt(fc) / fy) * b * d, (14.0 / fy) * b * d)
         cb = (6000.0 / (6000.0 + fy)) * d
         ab = beta1 * cb
         as_b = (0.85 * fc * ab * b) / fy
         as_max = 0.75 * as_b
 
-        # Momento resistente máximo como simplemente reforzada
-        a_max = (as_max * fy) / (0.85 * fc * b)
-        Mu_max_simp = phi_flex * as_max * fy * (d - a_max / 2.0) / 100000.0
-
+        Mu_max_simp = phi_flex * as_max * fy * (d - ((as_max * fy) / (0.85 * fc * b)) / 2.0) / 100000.0
         Mu_kgcm = Mu_tnm * 100000.0
 
         if Mu_tnm <= Mu_max_simp:
@@ -199,25 +195,25 @@ def procesar_mensajes(message):
             As_req = As1 + As2
             As_comp = As2
 
-        # CÁLCULO POR CORTE (E.060)
-        Vc = 0.53 * math.sqrt(fc) * b * d # kg
-        phi_Vc = phi_corte * Vc / 1000.0 # tn
+        # CORTE
+        Vc = 0.53 * math.sqrt(fc) * b * d
+        phi_Vc = phi_corte * Vc / 1000.0
         Vu_kg = Vu_tn * 1000.0
 
         if Vu_tn <= 0.5 * phi_Vc:
             corte_msg = "No requiere estribos por cálculo (mínimo por norma)."
-            s_estribo = 25.0
+            s_estribo = 22.0
         elif Vu_tn <= phi_Vc:
-            corte_msg = "Requiere estribos mínimos por norma E.060."
+            corte_msg = "Requiere estribos mínimos por norma RNE E.060."
             s_estribo = min(d / 2, 30.0)
         else:
             Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
-            Av = 2 * 0.71 # Estribo ø 3/8"
+            Av = 2 * 0.71
             s_calc = (Av * fy * d) / Vs_req
             s_estribo = min(s_calc, d / 2, 30.0)
             corte_msg = f"Requiere estribos ø 3/8\" cada `{s_estribo:.1f}` cm."
 
-        distribucion_estribos = f"1 @ 0.05, 5 @ 0.10, 4 @ 0.15, resto @ {s_estribo/100:.2f} m c/extremos"
+        distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremos"
 
         informe = (
             f"📐 **DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)**\n"
@@ -237,15 +233,17 @@ def procesar_mensajes(message):
             f"• **Distribución Sísmica Recomendada:**\n`{distribucion_estribos}`"
         )
 
+        # Envío del texto primero
         bot.reply_to(message, informe, parse_mode="Markdown")
 
+        # Intentar enviar el gráfico con try/except aislado
         try:
             buf = generar_croquis_viga(b, h, rec, tipo_viga, As_req, As_comp)
             bot.send_photo(chat_id, photo=buf, caption=f"📊 Croquis de Armado - Viga {b:.0f}×{h:.0f} cm")
-        except Exception as img_err:
-            print(f"Error generando gráfico: {img_err}")
+        except Exception as e:
+            print(f"Error con gráfico: {e}")
 
-    # SI SE ENVIARON 4 O 5 VALORES -> ES DOSIFICACIÓN DE CONCRETO
+    # DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
     elif len(valores) in [4, 5]:
         b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
         desp_pct = valores[4] if len(valores) == 5 else 5.0
@@ -276,11 +274,9 @@ def procesar_mensajes(message):
     else:
         bot.reply_to(
             message,
-            "⚠️ **Cantidad de datos no reconocida.**\n\n"
-            "• Para **Viga** envíe **6 datos**: `b h f'c fy Mu Vu`\n"
-            "  *Ejemplo:* `30 50 210 4200 14.5 8.5`\n\n"
-            "• Para **Concreto** envíe **4 o 5 datos**: `Ancho Largo Altura Cantidad [%Desp]`\n"
-            "  *Ejemplo:* `0.30 0.40 3.50 4 5`",
+            "⚠️ **Formato no reconocido.**\n\n"
+            "Envíe 6 valores para Viga: `30 50 210 4200 25 19`\n"
+            "O 5 valores para Concreto: `0.30 0.40 3.50 4 5`",
             parse_mode="Markdown"
         )
 
