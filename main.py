@@ -2,13 +2,17 @@ import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import os
 import math
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
-TOKEN = "8978402989:AAEcJEXuFFHQImwQVJph58ZmZpMpn7xSfqk"
+# Token actualizado
+TOKEN = "8978402989:AAFCx_uLhJcBg1eI0GyC7gAUH5UbgSl3E2g"
 bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
+# ---------------------------------------------------------
 # 1. SERVIDOR WEB EN SEGUNDO PLANO (REQUERIDO POR RENDER)
+# ---------------------------------------------------------
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -30,7 +34,9 @@ t = threading.Thread(target=run_http_server)
 t.daemon = True
 t.start()
 
-# 2. BASE DE DATOS Y ESTADOS
+# ---------------------------------------------------------
+# 2. BASE DE DATOS Y ESTADOS DE USUARIO
+# ---------------------------------------------------------
 DOSIFICACIONES = {
     '140': {'cemento': 7.01, 'arena': 0.51, 'piedra': 0.64, 'agua': 0.184},
     '175': {'cemento': 8.43, 'arena': 0.54, 'piedra': 0.55, 'agua': 0.185},
@@ -42,7 +48,9 @@ DOSIFICACIONES = {
 
 user_state = {}
 
-# 3. COMANDOS PRINCIPALES
+# ---------------------------------------------------------
+# 3. MANEJO DE COMANDOS Y MENÚS
+# ---------------------------------------------------------
 @bot.message_handler(commands=['start', 'menu'])
 def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
@@ -99,7 +107,9 @@ def callback_listener(call):
         )
         bot.send_message(chat_id, msg, parse_mode="Markdown")
 
-# 4. PROCESAMIENTO DE MENSAJES NUMÉRICOS
+# ---------------------------------------------------------
+# 4. PROCESAMIENTO DE CÁLCULOS
+# ---------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
     try:
@@ -113,7 +123,7 @@ def procesar_mensajes(message):
             bot.reply_to(message, "⚠️ *Entrada no válida.* Envíe números separados por espacio.", parse_mode="Markdown")
             return
 
-        # DISEÑO DE VIGA (6 DATOS)
+        # CÁLCULO DE VIGA (6 DATOS)
         if len(valores) == 6:
             b, h, fc, fy, Mu_tnm, Vu_tn = valores[0], valores[1], valores[2], valores[3], valores[4], valores[5]
             
@@ -193,7 +203,7 @@ def procesar_mensajes(message):
 
             bot.reply_to(message, informe, parse_mode="Markdown")
 
-        # DOSIFICACIÓN DE CONCRETO (4 O 5 DATOS)
+        # CÁLCULO DE CONCRETO (4 O 5 DATOS)
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
             desp_pct = valores[4] if len(valores) == 5 else 5.0
@@ -233,8 +243,24 @@ def procesar_mensajes(message):
     except Exception as err:
         print(f"Error procesando mensaje: {err}")
 
-# 5. POLLING RESILIENTE
+# ---------------------------------------------------------
+# 5. INICIALIZACIÓN A PRUEBA DE FALLOS Y REINTENTOS
+# ---------------------------------------------------------
 if __name__ == '__main__':
     print("Iniciando Bot de Telegram...")
-    bot.remove_webhook()
-    bot.infinity_polling(skip_pending=True)
+    
+    # Limpieza previa de peticiones colgadas
+    try:
+        bot.remove_webhook()
+        time.sleep(2)
+    except Exception as e:
+        print(f"Aviso al liberar webhook: {e}")
+
+    # Bucle infinito para auto-recuperar la conexión ante caídas
+    while True:
+        try:
+            bot.infinity_polling(skip_pending=True, timeout=30, long_polling_timeout=30)
+        except Exception as e:
+            print(f"Error o conflicto detectado: {e}")
+            print("Reintentando en 5 segundos...")
+            time.sleep(5)
