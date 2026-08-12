@@ -4,7 +4,7 @@ import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import matplotlib
-matplotlib.use('Agg') # Modo sin interfaz gráfica para servidores
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import telebot
@@ -41,26 +41,23 @@ DOSIFICACIONES = {
 user_state = {}
 
 def generar_grafico_viga(b, h, As, As_comp, s_estribo):
-    """Genera un plano de detalle de sección transversal y perfil y lo guarda como imagen."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 5))
     
     # 1. SECCIÓN TRANSVERSAL
     ax1.set_title(f"Seccion Transversal\n{b:.0f} x {h:.0f} cm", fontsize=10, fontweight='bold')
-    recubrimiento = 4.0 # cm
+    recubrimiento = 4.0
     viga_rect = patches.Rectangle((0, 0), b, h, linewidth=2, edgecolor='black', facecolor='#e0e0e0')
     estribo_rect = patches.Rectangle((recubrimiento, recubrimiento), b - 2*recubrimiento, h - 2*recubrimiento, 
                                      linewidth=1.5, edgecolor='blue', facecolor='none', linestyle='--', label=f"Estribo c/ {s_estribo:.1f}cm")
     ax1.add_patch(viga_rect)
     ax1.add_patch(estribo_rect)
 
-    # Dibujar acero longitudinal inferior
-    ax1.scatter([b/4, b/2, 3*b/4], [recubrimiento, recubrimiento, recubrimiento], color='red', s=80, zorder=5, label=f"Traccion As: {As:.1f}cm²")
+    ax1.scatter([b/4, b/2, 3*b/4], [recubrimiento, recubrimiento, recubrimiento], color='red', s=80, zorder=5, label=f"Traccion As: {As:.2f}cm²")
     
-    # Dibujar acero longitudinal superior
     if As_comp > 0:
-        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='green', s=80, zorder=5, label=f"Compresion As': {As_comp:.1f}cm²")
+        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='green', s=80, zorder=5, label=f"Compresion As': {As_comp:.2f}cm²")
     else:
-        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='purple', s=50, zorder=5, label="Acero Montaje 2ø5/8\"")
+        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='purple', s=50, zorder=5, label="Acero Montaje")
 
     ax1.set_xlim(-5, b + 5)
     ax1.set_ylim(-5, h + 5)
@@ -68,9 +65,9 @@ def generar_grafico_viga(b, h, As, As_comp, s_estribo):
     ax1.legend(loc='upper right', fontsize=8)
     ax1.grid(True, linestyle=':', alpha=0.5)
 
-    # 2. PERFIL LONGITUDINAL Y DISTRIBUCIÓN DE ESTRIBOS
-    ax2.set_title("Distribucion de Estribos en Confinamiento", fontsize=10, fontweight='bold')
-    longitud_viga = 300.0 # cm por defecto para esquema
+    # 2. PERFIL LONGITUDINAL
+    ax2.set_title("Distribucion de Estribos (Norma E.060)", fontsize=10, fontweight='bold')
+    longitud_viga = 300.0
     ax2.plot([0, longitud_viga], [0, 0], color='black', linewidth=4)
     ax2.plot([0, longitud_viga], [h, h], color='black', linewidth=4)
 
@@ -78,13 +75,12 @@ def generar_grafico_viga(b, h, As, As_comp, s_estribo):
     ax2.axvspan(0, zona_conf, color='yellow', alpha=0.3, label='Confinamiento (1@5, c/10cm)')
     ax2.axvspan(longitud_viga - zona_conf, longitud_viga, color='yellow', alpha=0.3)
 
-    ax2.text(zona_conf/2, h/2, "ZONA 1\nEstribos c/ 10cm", ha='center', va='center', fontsize=8, fontweight='bold')
+    ax2.text(zona_conf/2, h/2, "ZONA 1\nConfinada", ha='center', va='center', fontsize=8, fontweight='bold')
     ax2.text(longitud_viga/2, h/2, f"ZONA CENTRAL\nEstribos c/ {s_estribo:.0f}cm", ha='center', va='center', fontsize=8, fontweight='bold')
-    ax2.text(longitud_viga - zona_conf/2, h/2, "ZONA 3\nEstribos c/ 10cm", ha='center', va='center', fontsize=8, fontweight='bold')
+    ax2.text(longitud_viga - zona_conf/2, h/2, "ZONA 3\nConfinada", ha='center', va='center', fontsize=8, fontweight='bold')
 
     ax2.set_xlim(-10, longitud_viga + 10)
     ax2.set_ylim(-10, h + 20)
-    ax2.set_aspect('auto')
     ax2.legend(loc='upper center', fontsize=8)
     ax2.grid(True, linestyle=':', alpha=0.5)
 
@@ -99,11 +95,11 @@ def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
     markup.add(
-        InlineKeyboardButton("📐 Diseño de Viga con Gráficos", callback_data="modo_viga"),
+        InlineKeyboardButton("📐 Diseño de Viga Detallado (RNE E.060)", callback_data="modo_viga"),
         InlineKeyboardButton("📦 Cubicación de Concreto", callback_data="modo_concreto")
     )
     msg = (
-        "🏗️ SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)\n\n"
+        "🏗️ *SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)*\n\n"
         "• Para Viga (6 datos):\n"
         "`30 60 210 4200 20 12`\n\n"
         "• Para Concreto (4 o 5 datos):\n"
@@ -136,54 +132,102 @@ def procesar_mensajes(message):
 
         if len(valores) == 6:
             b, h, fc, fy, Mu_tnm, Vu_tn = valores
-            rec = 6.0
-            d = h - rec
-            phi_flex = 0.90
-            phi_corte = 0.85
+            
+            # --- PARÁMETROS GEOMÉTRICOS Y NORMATIVOS (RNE E.060) ---
+            rec = 6.0  # Recubrimiento libre + estribo + d' (cm)
+            d = h - rec  # Peralte efectivo
+            phi_flex = 0.90  # Factor de reducción por flexión (Art. 9.3)
+            phi_corte = 0.85  # Factor de reducción por corte (Art. 9.3)
 
+            # Factor Beta 1 según la resistencia del concreto f'c (Art. 10.2.7.3)
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
-            as_min = max((0.7 * math.sqrt(fc) / fy) * b * d, (14.0 / fy) * b * d)
+
+            # --- PARÁMETROS DE ACERO MÍNIMO (Art. 10.5 de la Norma E.060) ---
+            # Se deben cumplir los criterios: As_min1 y As_min2, tomando el mayor
+            as_min1 = (0.7 * math.sqrt(fc) / fy) * b * d
+            as_min2 = (14.0 / fy) * b * d
+            as_min = max(as_min1, as_min2)
+
+            # --- CUANTÍA BALANCEADA Y ACERO MÁXIMO (Art. 10.3.3) ---
             cb = (6000.0 / (6000.0 + fy)) * d
-            as_max = 0.75 * ((0.85 * fc * (beta1 * cb) * b) / fy)
+            ab = beta1 * cb
+            as_b = (0.85 * fc * ab * b) / fy
+            as_max = 0.75 * as_b  # Límite para evitar falla frágil por compresión
 
             a_max_calc = (as_max * fy) / (0.85 * fc * b)
             Mu_max_simp = phi_flex * as_max * fy * (d - a_max_calc / 2.0) / 100000.0
             Mu_kgcm = Mu_tnm * 100000.0
 
+            # --- DISEÑO POR FLEXIÓN ---
             if Mu_tnm <= Mu_max_simp:
                 tipo_viga = "SIMPLEMENTE REFORZADA"
+                # Ecuación cuadrática de equilibrio estático (Whitney)
                 term = 1.0 - (2.0 * Mu_kgcm) / (phi_flex * b * (d**2) * 0.85 * fc)
-                As_req = max((0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term)), as_min)
+                if term < 0:
+                    bot.reply_to(message, "❌ Error: Momento actuante excede la capacidad máxima geométrica.")
+                    return
+                As_calc = (0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term))
+                As_req = max(As_calc, as_min)  # Aplicando regla de acero mínimo normativo
                 As_comp = 0.0
             else:
                 tipo_viga = "DOBLEMENTE REFORZADA"
                 As1 = as_max
-                As2 = (Mu_tnm * 100000.0 - Mu_max_simp * 100000.0) / (phi_flex * fy * (d - rec))
+                Mu1_kgcm = Mu_max_simp * 100000.0
+                Mu2_kgcm = Mu_kgcm - Mu1_kgcm
+                As2 = Mu2_kgcm / (phi_flex * fy * (d - rec))
                 As_req = As1 + As2
                 As_comp = As2
 
-            Vc = 0.53 * math.sqrt(fc) * b * d
-            phi_Vc = phi_corte * Vc / 1000.0
-            s_estribo = min((2 * 0.71 * fy * d) / ((Vu_tn * 1000.0 - phi_corte * Vc) / phi_corte), d / 2, 30.0) if Vu_tn > phi_Vc else 22.0
+            # --- DISEÑO POR CORTE (Art. 11.4 de la Norma E.060) ---
+            # 1. Resistencia al corte aportada por el concreto (Vc)
+            Vc = 0.53 * math.sqrt(fc) * b * d  # en kg
+            phi_Vc_tn = (phi_corte * Vc) / 1000.0  # en toneladas
+            Vu_kg = Vu_tn * 1000.0
 
+            # 2. Criterios de exigencia de estribos según el RNE
+            if Vu_tn <= 0.5 * phi_Vc_tn:
+                corte_estado = "Vu <= 0.5 * phi*Vc (No requiere estribos por cálculo, usar mínimos normativos)."
+                s_estribo = 22.0
+            elif Vu_tn <= phi_Vc_tn:
+                corte_estado = "0.5*phi*Vc < Vu <= phi*Vc (Requiere espaciamiento mínimo por norma)."
+                s_estribo = min(d / 2.0, 30.0)
+            else:
+                corte_estado = "Vu > phi*Vc (Requiere diseño completo por corte con estribos)."
+                Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
+                Av = 2 * 0.71  # 2 ramas de acero de 3/8" (0.71 cm² c/u)
+                s_calc = (Av * fy * d) / Vs_req
+                s_estribo = min(s_calc, d / 2.0, 30.0)
+
+            # --- INFORME TÉCNICO DETALLADO PASO A PASO ---
             informe = (
-                f"📐 *DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)*\n"
+                f"📐 *MEMORIA DE CÁLCULO DETALLADA (RNE E.060)*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Sección: {b:.0f} × {h:.0f} cm | d: {d:.1f} cm\n"
-                f"🔹 Materiales: f'c = {fc:.0f} | fy = {fy:.0f}\n"
-                f"🔹 Solicitaciones: Mu = {Mu_tnm:.2f} tn·m | Vu = {Vu_tn:.2f} tn\n\n"
-                f"📌 *Resultados:*\n"
-                f"• Tipo: `{tipo_viga}`\n"
-                f"• Acero Tracción (As): `{As_req:.2f} cm²`\n" +
-                (f"• Acero Compresión (As'): `{As_comp:.2f} cm²`\n" if As_comp > 0 else "") +
-                f"• Estribos recomendados: c/ `{s_estribo:.1f}` cm"
+                f"🏗️ *1. Datos y Parámetros Iniciales:*\n"
+                f"• Sección: `b = {b:.0f} cm`, `h = {h:.0f} cm`\n"
+                f"• Materiales: `f'c = {fc:.0f} kg/cm²`, `fy = {fy:.0f} kg/cm²`\n"
+                f"• Solicitaciones: `Mu = {Mu_tnm:.2f} tn·m`, `Vu = {Vu_tn:.2f} tn`\n"
+                f"• Peralte efectivo (`d = h - rec`): `d = {h} - 6 = {d:.1f} cm`\n"
+                f"• Factor de bloque de compresión (`beta1`): `{beta1:.2f}`\n\n"
+                
+                f"📌 *2. Diseño por Flexión (Art. 10.3 y 10.5):*\n"
+                f"• *Acero Mínimo Normativo:* `As_min = max((0.7√f'c/fy)bd, (14/fy)bd)`\n"
+                f"  ➡️ `As_min = {as_min:.2f} cm²` (Rigente por norma para evitar falla frágil)\n"
+                f"• *Momento Último Resistido Simplificado (`Mu_max`):* `{Mu_max_simp:.2f} tn·m`\n"
+                f"• *Comportamiento Estructural:* Sección `{tipo_viga}`\n"
+                f"• *Área de Acero en Tracción (`As`):* `{As_req:.2f} cm²`\n" +
+                (f"• *Área de Acero en Compresión (`As'`):* `{As_comp:.2f} cm²`\n\n" if As_comp > 0 else "\n") +
+                
+                f"📌 *3. Diseño por Corte (Art. 11.4):*\n"
+                f"• *Aporte del Concreto (`phi*Vc`):* `{phi_Vc_tn:.2f} tn`\n"
+                f"• *Evaluación:* {corte_estado}\n"
+                f"• *Espaciamiento Calculado de Estribos (`s`):* `c/ {s_estribo:.1f} cm`"
             )
             bot.reply_to(message, informe, parse_mode="Markdown")
 
             # Generar y enviar plano gráfico
             ruta_img = generar_grafico_viga(b, h, As_req, As_comp, s_estribo)
             with open(ruta_img, 'rb') as foto:
-                bot.send_photo(chat_id, foto, caption="📊 *Plano esquemático de diseño y distribución de estribos*", parse_mode="Markdown")
+                bot.send_photo(chat_id, foto, caption="📊 *Plano esquemático y distribución de estribos según RNE E.060*", parse_mode="Markdown")
 
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
@@ -193,21 +237,21 @@ def procesar_mensajes(message):
             vol_tot = (b * l * h * cant) * (1 + desp_pct / 100.0)
 
             resumen = (
-                f"📄 *DOSIFICACIÓN (f'c = {fc})*\n"
-                f"• Volumen Total: `{vol_tot:.2f} m³`\n"
+                f"📄 *DOSIFICACIÓN DE CONCRETO (f'c = {fc} kg/cm²)*\n"
+                f"• Volumen Total (+{desp_pct:.1f}% des.): `{vol_tot:.2f} m³`\n"
                 f"• Cemento: `{vol_tot * dosi['cemento']:.1f}` bolsas\n"
                 f"• Arena: `{vol_tot * dosi['arena']:.2f} m³`\n"
                 f"• Piedra: `{vol_tot * dosi['piedra']:.2f} m³`\n"
-                f"• Agua: `{vol_tot * dosi['agua'] * 1000:.0f} L`"
+                f"• Agua: `{vol_tot * dosi['agua'] * 1000:.0f} Litros`"
             )
             bot.reply_to(message, resumen, parse_mode="Markdown")
         else:
             bot.reply_to(message, "⚠️ Formato incorrecto. Envíe 6 valores para viga o 4-5 para concreto.")
     except Exception as err:
-        bot.reply_to(message, f"⚠️ Error: {err}")
+        bot.reply_to(message, f"⚠️ Error de cálculo: {err}")
 
 if __name__ == '__main__':
-    print("Iniciando bot con soporte gráfico...")
+    print("Iniciando bot con memoria de cálculo detallada E.060...")
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
