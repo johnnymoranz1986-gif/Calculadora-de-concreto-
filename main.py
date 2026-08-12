@@ -140,7 +140,7 @@ def procesar_mensajes(message):
 
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
 
-            # Acero mínimo
+            # --- FÓRMULAS ACERO MÍNIMO ---
             as_min1 = (0.7 * math.sqrt(fc) / fy) * b * d
             as_min2 = (14.0 / fy) * b * d
             as_min = max(as_min1, as_min2)
@@ -172,38 +172,42 @@ def procesar_mensajes(message):
                 As_req = As1 + As2
                 As_comp = As2
 
-            # Corte
+            # --- FÓRMULAS CORTE Y ESPACIAMIENTO ---
             Vc = 0.53 * math.sqrt(fc) * b * d
             phi_Vc_tn = (phi_corte * Vc) / 1000.0
             Vu_kg = Vu_tn * 1000.0
 
             if Vu_tn <= 0.5 * phi_Vc_tn:
-                corte_estado = "Bajo corte (Usa mínimo constructivo)"
+                corte_estado = "Vu <= 0.5*φ*Vc (Mínimo constructivo)"
                 s_estribo = 22.0
+                formula_s = "s = 22.0 cm (Fijo por norma)"
             elif Vu_tn <= phi_Vc_tn:
-                corte_estado = "Corte moderado (Rige d/2 ó 30cm)"
+                corte_estado = "0.5*φ*Vc < Vu <= φ*Vc"
                 s_estribo = min(d / 2.0, 30.0)
+                formula_s = f"s = min(d/2, 30) = min({d/2:.1f}, 30)"
             else:
-                corte_estado = "Corte alto (Requiere refuerzo por corte)"
+                corte_estado = "Vu > φ*Vc (Requiere cálculo por corte)"
                 Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
                 Av = 2 * 0.71
                 s_calc = (Av * fy * d) / Vs_req
                 s_estribo = min(s_calc, d / 2.0, 30.0)
+                formula_s = f"s = (Av * fy * d) / Vs = ({Av} * {fy} * {d}) / {Vs_req:.1f} = {s_calc:.1f} cm"
 
-            # --- INFORME ESTRUCTURADO Y DISEÑADO VISUALMENTE ---
+            # --- INFORME CON FÓRMULAS Y PASOS DETALLADOS ---
             informe = (
-                "📐 *MEMORIA DE CÁLCULO E.060*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "📐 *MEMORIA DE CÁLCULO Y FÓRMULAS (E.060)*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
                 
-                "🔹 *1. DATOS Y PARÁMETROS INICIALES*\n"
-                f"• Sección: `{b:.0f} × {h:.0f} cm` | Peralte `d: {d:.1f} cm`\n"
-                f"• Materiales: `f'c = {fc:.0f}` | `fy = {fy:.0f} kg/cm²`\n"
-                f"• Solicitaciones: `Mu = {Mu_tnm:.2f} tn·m` | `Vu = {Vu_tn:.2f} tn`\n"
-                f"• Factor `beta1`: `{beta1:.2f}`\n\n"
+                "🔹 *1. GEOMETRÍA Y MATERIALES*\n"
+                f"• Peralte efectivo ($d$): `h - rec` = `{h} - 6 = {d:.1f} cm`\n"
+                f"• Factor $\\beta_1$: `{beta1:.2f}`\n\n"
                 
-                "🔹 *2. VERIFICACIÓN Y FLEXIÓN*\n"
-                f"• Acero Mínimo (`As_min`): `{as_min:.2f} cm²`\n"
-                f"• Comportamiento: `{tipo_viga}`\n\n"
+                "🔹 *2. CÁLCULO DE FLEXIÓN*\n"
+                f"• Acero Mínimo ($As_{{min}}$):\n"
+                f"  `max((0.7*√f'c/fy)*b*d, (14/fy)*b*d)`\n"
+                f"  = `max({as_min1:.2f}, {as_min2:.2f})` = *{as_min:.2f} cm²*\n"
+                f"• Comportamiento: *{tipo_viga}*\n"
+                f"• Momento Máximo Simp. ($Mu_{{max}}$): `{Mu_max_simp:.2f} tn·m`\n\n"
                 
                 "🎯 *RESULTADOS CRÍTICOS DE DISEÑO:*\n"
                 "┌────────────────────────────────────────┐\n"
@@ -212,9 +216,13 @@ def procesar_mensajes(message):
                 f"│ • Estribos (Zona Cent.): c/ {s_estribo:4.1f} cm    │\n" +
                 "└────────────────────────────────────────┘\n\n"
                 
-                "🔹 *3. DISEÑO POR CORTE*\n"
-                f"• Aporte Concreto (`φVc`): `{phi_Vc_tn:.2f} tn`\n"
-                f"• Condición: `{corte_estado}`"
+                "🔹 *3. CÁLCULO Y ESPACIAMIENTO POR CORTE*\n"
+                f"• Concreto ($\\phi V_c$): `0.85 * (0.53 * √f'c * b * d) / 1000`\n"
+                f"  = *{phi_Vc_tn:.2f} tn* (vs $Vu$ = {Vu_tn:.2f} tn)\n"
+                f"• Condición: *{corte_estado}*\n"
+                f"• Aplicación de Fórmula:\n"
+                f"  `{formula_s}`\n"
+                f"  -> Rige final: *s = {s_estribo:.1f} cm*"
             )
             bot.reply_to(message, informe)
 
@@ -228,12 +236,15 @@ def procesar_mensajes(message):
             desp_pct = valores[4] if len(valores) == 5 else 5.0
             fc = user_state.get(chat_id, {}).get('fc', '210')
             dosi = DOSIFICACIONES.get(fc, DOSIFICACIONES['210'])
-            vol_tot = (b * l * h * cant) * (1 + desp_pct / 100.0)
+            vol_neto = b * l * h * cant
+            vol_tot = vol_neto * (1 + desp_pct / 100.0)
 
             resumen = (
-                f"📦 *DOSIFICACIÓN DE CONCRETO (f'c = {fc} kg/cm²)*\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• Volumen Total (+{desp_pct:.1f}% des.): `{vol_tot:.2f} m³`\n\n"
+                f"📦 *CÚBICA Y FÓRMULAS DE CONCRETO (f'c = {fc})*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"• Fórmula Volumen Neto: `Ancho * Largo * Altura * Cantidad`\n"
+                f"  = `{b} * {l} * {h} * {cant}` = `{vol_neto:.2f} m³`\n"
+                f"• Volumen Total (+{desp_pct:.1f}% des.): `{vol_neto} * (1 + {desp_pct}/100)` = *{vol_tot:.2f} m³*\n\n"
                 f"🎯 *MATERIALES REQUERIDOS:*\n"
                 "┌────────────────────────────────────────┐\n"
                 f"│ • Cemento : {vol_tot * dosi['cemento']:6.1f} bolsas       │\n"
@@ -249,7 +260,7 @@ def procesar_mensajes(message):
         bot.reply_to(message, f"⚠️ Error de cálculo: {err}")
 
 if __name__ == '__main__':
-    print("Iniciando bot con resultados destacados...")
+    print("Iniciando bot con fórmulas explícitas...")
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
