@@ -3,10 +3,14 @@ import math
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import matplotlib
+matplotlib.use('Agg') # Modo sin interfaz gráfica para servidores
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- SERVIDOR HTTP PARA HEALTH CHECK DE RENDER ---
+# --- SERVIDOR HTTP PARA RENDER ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -17,10 +21,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def run_health_check_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    print(f"Servidor HTTP para Render activo en puerto {port}")
     server.serve_forever()
 
-# Iniciar servidor HTTP en un hilo independiente
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
 # --- CONFIGURACIÓN DEL BOT ---
@@ -38,90 +40,111 @@ DOSIFICACIONES = {
 
 user_state = {}
 
+def generar_grafico_viga(b, h, As, As_comp, s_estribo):
+    """Genera un plano de detalle de sección transversal y perfil y lo guarda como imagen."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
+    
+    # 1. SECCIÓN TRANSVERSAL
+    ax1.set_title(f"Seccion Transversal\n{b:.0f} x {h:.0f} cm", fontsize=10, fontweight='bold')
+    recubrimiento = 4.0 # cm
+    viga_rect = patches.Rectangle((0, 0), b, h, linewidth=2, edgecolor='black', facecolor='#e0e0e0')
+    estribo_rect = patches.Rectangle((recubrimiento, recubrimiento), b - 2*recubrimiento, h - 2*recubrimiento, 
+                                     linewidth=1.5, edgecolor='blue', facecolor='none', linestyle='--', label=f"Estribo c/ {s_estribo:.1f}cm")
+    ax1.add_patch(viga_rect)
+    ax1.add_patch(estribo_rect)
+
+    # Dibujar acero longitudinal inferior
+    ax1.scatter([b/4, b/2, 3*b/4], [recubrimiento, recubrimiento, recubrimiento], color='red', s=80, zorder=5, label=f"Traccion As: {As:.1f}cm²")
+    
+    # Dibujar acero longitudinal superior
+    if As_comp > 0:
+        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='green', s=80, zorder=5, label=f"Compresion As': {As_comp:.1f}cm²")
+    else:
+        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='purple', s=50, zorder=5, label="Acero Montaje 2ø5/8\"")
+
+    ax1.set_xlim(-5, b + 5)
+    ax1.set_ylim(-5, h + 5)
+    ax1.set_aspect('equal')
+    ax1.legend(loc='upper right', fontsize=8)
+    ax1.grid(True, linestyle=':', alpha=0.5)
+
+    # 2. PERFIL LONGITUDINAL Y DISTRIBUCIÓN DE ESTRIBOS
+    ax2.set_title("Distribucion de Estribos en Confinamiento", fontsize=10, fontweight='bold')
+    longitud_viga = 300.0 # cm por defecto para esquema
+    ax2.plot([0, longitud_viga], [0, 0], color='black', linewidth=4)
+    ax2.plot([0, longitud_viga], [h, h], color='black', linewidth=4)
+
+    zona_conf = 60.0
+    ax2.axvspan(0, zona_conf, color='yellow', alpha=0.3, label='Confinamiento (1@5, c/10cm)')
+    ax2.axvspan(longitud_viga - zona_conf, longitud_viga, color='yellow', alpha=0.3)
+
+    ax2.text(zona_conf/2, h/2, "ZONA 1\nEstribos c/ 10cm", ha='center', va='center', fontsize=8, fontweight='bold')
+    ax2.text(longitud_viga/2, h/2, f"ZONA CENTRAL\nEstribos c/ {s_estribo:.0f}cm", ha='center', va='center', fontsize=8, fontweight='bold')
+    ax2.text(longitud_viga - zona_conf/2, h/2, "ZONA 3\nEstribos c/ 10cm", ha='center', va='center', fontsize=8, fontweight='bold')
+
+    ax2.set_xlim(-10, longitud_viga + 10)
+    ax2.set_ylim(-10, h + 20)
+    ax2.set_aspect('auto')
+    ax2.legend(loc='upper center', fontsize=8)
+    ax2.grid(True, linestyle=':', alpha=0.5)
+
+    plt.tight_layout()
+    ruta_imagen = "detalles_viga.png"
+    plt.savefig(ruta_imagen, dpi=150)
+    plt.close()
+    return ruta_imagen
+
 @bot.message_handler(commands=['start', 'menu'])
 def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
     markup.add(
-        InlineKeyboardButton("📐 Diseño de Viga (Flexión y Corte)", callback_data="modo_viga"),
-        InlineKeyboardButton("📦 Cubicación y Dosificación de Concreto", callback_data="modo_concreto")
+        InlineKeyboardButton("📐 Diseño de Viga con Gráficos", callback_data="modo_viga"),
+        InlineKeyboardButton("📦 Cubicación de Concreto", callback_data="modo_concreto")
     )
     msg = (
         "🏗️ SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)\n\n"
-        "💡 Ingrese los datos directamente:\n\n"
         "• Para Viga (6 datos):\n"
-        "[b] [h] [f'c] [fy] [Mu] [Vu]\n"
-        "  Ejemplo: 30 60 210 4200 20 12\n\n"
+        "`30 60 210 4200 20 12`\n\n"
         "• Para Concreto (4 o 5 datos):\n"
-        "[Ancho] [Largo] [Altura] [Cant] [%Desp]\n"
-        "  Ejemplo: 0.30 0.40 3.50 4 5"
+        "`0.30 0.40 3.50 4 5`"
     )
-    bot.reply_to(message, msg, reply_markup=markup)
+    bot.reply_to(message, msg, parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_listener(call):
     chat_id = call.message.chat.id
     if call.data == "modo_viga":
         user_state[chat_id] = {'modo': 'viga'}
-        msg = (
-            "📐 DISEÑO ESTRUCTURAL DE VIGAS (RNE E.060)\n\n"
-            "Envíe los 6 valores numéricos separados por espacio:\n"
-            "[b] [h] [f'c] [fy] [Mu] [Vu]\n\n"
-            "📌 Ejemplo: 30 60 210 4200 20 12"
-        )
-        bot.send_message(chat_id, msg)
-        
+        bot.send_message(chat_id, "📐 Envíe los 6 valores para la viga:\n`[b] [h] [f'c] [fy] [Mu] [Vu]`", parse_mode="Markdown")
     elif call.data == "modo_concreto":
         markup = InlineKeyboardMarkup(row_width=2)
-        markup.add(
-            InlineKeyboardButton("fc = 140", callback_data="fc_140"),
-            InlineKeyboardButton("fc = 175", callback_data="fc_175"),
-            InlineKeyboardButton("fc = 210", callback_data="fc_210"),
-            InlineKeyboardButton("fc = 280", callback_data="fc_280"),
-            InlineKeyboardButton("fc = 350", callback_data="fc_350"),
-            InlineKeyboardButton("fc = 450", callback_data="fc_450")
-        )
-        bot.send_message(chat_id, "Seleccione la resistencia del concreto (f'c):", reply_markup=markup)
-
+        for r in ['140', '175', '210', '280', '350', '450']:
+            markup.add(InlineKeyboardButton(f"fc = {r}", callback_data=f"fc_{r}"))
+        bot.send_message(chat_id, "Seleccione f'c:", reply_markup=markup)
     elif call.data.startswith("fc_"):
         fc = call.data.split("_")[1]
         user_state[chat_id] = {'modo': 'concreto', 'fc': fc}
-        msg = (
-            f"✅ Concreto Seleccionado: f'c = {fc} kg/cm²\n\n"
-            "Envía las dimensiones:\n"
-            "[Ancho] [Largo] [Altura] [Cantidad] [% Desperdicio]\n"
-            "Ejemplo: 0.30 0.40 3.50 4 5"
-        )
-        bot.send_message(chat_id, msg)
+        bot.send_message(chat_id, f"✅ f'c = {fc}. Envía dimensiones: `[Ancho] [Largo] [Altura] [Cant] [%Desp]`", parse_mode="Markdown")
 
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
     try:
         chat_id = message.chat.id
         texto = message.text.strip().replace(',', '.')
-        partes = texto.split()
-
-        try:
-            valores = [float(x) for x in partes]
-        except ValueError:
-            bot.reply_to(message, "⚠️ Entrada no válida. Envíe valores numéricos separados por espacio.")
-            return
+        valores = [float(x) for x in texto.split()]
 
         if len(valores) == 6:
             b, h, fc, fy, Mu_tnm, Vu_tn = valores
-            
             rec = 6.0
             d = h - rec
             phi_flex = 0.90
             phi_corte = 0.85
 
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
-
             as_min = max((0.7 * math.sqrt(fc) / fy) * b * d, (14.0 / fy) * b * d)
             cb = (6000.0 / (6000.0 + fy)) * d
-            ab = beta1 * cb
-            as_b = (0.85 * fc * ab * b) / fy
-            as_max = 0.75 * as_b
+            as_max = 0.75 * ((0.85 * fc * (beta1 * cb) * b) / fy)
 
             a_max_calc = (as_max * fy) / (0.85 * fc * b)
             Mu_max_simp = phi_flex * as_max * fy * (d - a_max_calc / 2.0) / 100000.0
@@ -130,116 +153,63 @@ def procesar_mensajes(message):
             if Mu_tnm <= Mu_max_simp:
                 tipo_viga = "SIMPLEMENTE REFORZADA"
                 term = 1.0 - (2.0 * Mu_kgcm) / (phi_flex * b * (d**2) * 0.85 * fc)
-                
-                if term < 0:
-                    bot.reply_to(message, "❌ Error: El momento actuante supera la capacidad física de la sección de concreto.")
-                    return
-                
-                As_calc = (0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term))
-                As_req = max(As_calc, as_min)
+                As_req = max((0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term)), as_min)
                 As_comp = 0.0
             else:
                 tipo_viga = "DOBLEMENTE REFORZADA"
                 As1 = as_max
-                Mu1_kgcm = Mu_max_simp * 100000.0
-                Mu2_kgcm = Mu_kgcm - Mu1_kgcm
-                dp = rec
-                As2 = Mu2_kgcm / (phi_flex * fy * (d - dp))
+                As2 = (Mu_tnm * 100000.0 - Mu_max_simp * 100000.0) / (phi_flex * fy * (d - rec))
                 As_req = As1 + As2
                 As_comp = As2
 
             Vc = 0.53 * math.sqrt(fc) * b * d
             phi_Vc = phi_corte * Vc / 1000.0
-            Vu_kg = Vu_tn * 1000.0
-
-            if Vu_tn <= 0.5 * phi_Vc:
-                corte_msg = "No requiere estribos por cálculo (usar mínimo por norma)."
-                s_estribo = 22.0
-            elif Vu_tn <= phi_Vc:
-                corte_msg = "Requiere estribos mínimos por norma RNE E.060."
-                s_estribo = min(d / 2, 30.0)
-            else:
-                Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
-                Av = 2 * 0.71
-                s_calc = (Av * fy * d) / Vs_req
-                s_estribo = min(s_calc, d / 2, 30.0)
-                corte_msg = f"Requiere estribos ø 3/8\" c/ {s_estribo:.1f} cm."
-
-            distribucion_estribos = f"1 @ 0.05 m, 5 @ 0.10 m, 4 @ 0.15 m, resto @ {s_estribo/100:.2f} m c/extremo"
-            comp_line = f"• Acero Compresión (As'): {As_comp:.2f} cm²\n" if As_comp > 0 else ""
+            s_estribo = min((2 * 0.71 * fy * d) / ((Vu_tn * 1000.0 - phi_corte * Vc) / phi_corte), d / 2, 30.0) if Vu_tn > phi_Vc else 22.0
 
             informe = (
-                f"📐 DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)\n"
+                f"📐 *DISEÑO ESTRUCTURAL DE VIGA (RNE E.060)*\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"🔹 Sección: {b:.0f} × {h:.0f} cm | Peralte efe. (d): {d:.1f} cm\n"
-                f"🔹 Materiales: f'c = {fc:.0f} kg/cm² | fy = {fy:.0f} kg/cm²\n"
+                f"🔹 Sección: {b:.0f} × {h:.0f} cm | d: {d:.1f} cm\n"
+                f"🔹 Materiales: f'c = {fc:.0f} | fy = {fy:.0f}\n"
                 f"🔹 Solicitaciones: Mu = {Mu_tnm:.2f} tn·m | Vu = {Vu_tn:.2f} tn\n\n"
-                f"📌 1. DISEÑO POR FLEXIÓN:\n"
-                f"• Tipo: {tipo_viga}\n"
-                f"• Mu Máx. Simplemente Ref.: {Mu_max_simp:.2f} tn·m\n"
-                f"• Acero Mínimo (As_min): {as_min:.2f} cm²\n"
-                f"• Acero Tracción (As): {As_req:.2f} cm²\n"
-                f"{comp_line}\n"
-                f"📌 2. DISEÑO POR CORTE:\n"
-                f"• Resistencia Concreto (phi Vc): {phi_Vc:.2f} tn\n"
-                f"• Estado: {corte_msg}\n"
-                f"• Distribución Sísmica Recomendada:\n{distribucion_estribos}"
+                f"📌 *Resultados:*\n"
+                f"• Tipo: `{tipo_viga}`\n"
+                f"• Acero Tracción (As): `{As_req:.2f} cm²`\n" +
+                (f"• Acero Compresión (As'): `{As_comp:.2f} cm²`\n" if As_comp > 0 else "") +
+                f"• Estribos recomendados: c/ `{s_estribo:.1f}` cm"
             )
-            bot.reply_to(message, informe)
+            bot.reply_to(message, informe, parse_mode="Markdown")
+
+            # Generar y enviar plano gráfico
+            ruta_img = generar_grafico_viga(b, h, As_req, As_comp, s_estribo)
+            with open(ruta_img, 'rb') as foto:
+                bot.send_photo(chat_id, foto, caption="📊 *Plano esquemático de diseño y distribución de estribos*", parse_mode="Markdown")
 
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
             desp_pct = valores[4] if len(valores) == 5 else 5.0
-
             fc = user_state.get(chat_id, {}).get('fc', '210')
             dosi = DOSIFICACIONES.get(fc, DOSIFICACIONES['210'])
-            factor = 1 + (desp_pct / 100.0)
-
-            vol_tot = (b * l * h * cant) * factor
-
-            cemento = vol_tot * dosi['cemento']
-            arena = vol_tot * dosi['arena']
-            piedra = vol_tot * dosi['piedra']
-            agua = vol_tot * dosi['agua'] * 1000
+            vol_tot = (b * l * h * cant) * (1 + desp_pct / 100.0)
 
             resumen = (
-                f"📄 DOSIFICACIÓN DE CONCRETO (f'c = {fc} kg/cm²)\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"📦 Volumen Total (+{desp_pct:.1f}% desperdicio): {vol_tot:.2f} m³\n\n"
-                f"🛠️ Insumos Requeridos:\n"
-                f"• Cemento: {cemento:.1f} bolsas\n"
-                f"• Arena Gruesa: {arena:.2f} m³\n"
-                f"• Piedra Chancada: {piedra:.2f} m³\n"
-                f"• Agua: {agua:.0f} Litros"
+                f"📄 *DOSIFICACIÓN (f'c = {fc})*\n"
+                f"• Volumen Total: `{vol_tot:.2f} m³`\n"
+                f"• Cemento: `{vol_tot * dosi['cemento']:.1f}` bolsas\n"
+                f"• Arena: `{vol_tot * dosi['arena']:.2f} m³`\n"
+                f"• Piedra: `{vol_tot * dosi['piedra']:.2f} m³`\n"
+                f"• Agua: `{vol_tot * dosi['agua'] * 1000:.0f} L`"
             )
-            bot.reply_to(message, resumen)
-
+            bot.reply_to(message, resumen, parse_mode="Markdown")
         else:
-            bot.reply_to(
-                message,
-                "⚠️ Formato no reconocido.\n\n"
-                "• Viga (6 datos): 30 60 210 4200 20 12\n"
-                "• Concreto (4-5 datos): 0.30 0.40 3.50 4 5"
-            )
-
+            bot.reply_to(message, "⚠️ Formato incorrecto. Envíe 6 valores para viga o 4-5 para concreto.")
     except Exception as err:
-        print(f"Error procesando mensaje: {err}")
-        bot.reply_to(message, f"⚠️ Error interno en el cálculo: {err}")
+        bot.reply_to(message, f"⚠️ Error: {err}")
 
 if __name__ == '__main__':
-    print("Iniciando servicio del Bot en Render...")
-    
-    # Eliminar cualquier webhook previo para liberar los mensajes pendientes
-    try:
-        bot.remove_webhook(drop_pending_updates=True)
-        time.sleep(2)
-    except Exception as e:
-        print(f"Aviso al limpiar webhook: {e}")
-
-    # Bucle infinito de polling
+    print("Iniciando bot con soporte gráfico...")
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
         except Exception as e:
-            print(f"Error en polling, reintentando: {e}")
             time.sleep(3)
