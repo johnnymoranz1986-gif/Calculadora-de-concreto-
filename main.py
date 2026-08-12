@@ -67,12 +67,13 @@ def generar_grafico_viga(b, h, As, As_comp, s_estribo):
     return "viga.png"
 
 # --- MANEJADORES ---
-@bot.message_handler(commands=['start', 'menu', 'morales'])
-def menu(message):
-    if message.text == '/morales':
-        bot.reply_to(message, "Ejemplos Morales:\n/test_viga_simple\n/test_viga_doble\n/test_viga_confinada")
-    else:
-        bot.reply_to(message, "SISTEMA ESTRUCTURAL\nEnvia: [b] [h] [f'c] [fy] [Mu] [Vu]")
+@bot.message_handler(commands=['start', 'menu'])
+def enviar_bienvenida(message):
+    bot.reply_to(message, "¡Hola! Sistema estructural activo.\nEnvía los datos así: [b] [h] [f'c] [fy] [Mu] [Vu]\nO escribe /morales para ver los ejemplos.")
+
+@bot.message_handler(commands=['morales'])
+def comando_morales(message):
+    bot.reply_to(message, "Ejemplos del libro de Morales:\n/test_viga_simple\n/test_viga_doble\n/test_viga_confinada")
 
 @bot.message_handler(commands=['test_viga_simple', 'test_viga_doble', 'test_viga_confinada'])
 def test_ejemplo(message):
@@ -89,20 +90,20 @@ def procesar_mensajes(message):
         if len(valores) == 6:
             b, h, fc, fy, Mu, Vu = valores
             d = h - 6.0
-            # Logica simplificada para salida inmediata
             as_min = max((0.7*math.sqrt(fc)/fy)*b*d, (14/fy)*b*d)
             As_req = max((Mu*100000)/(0.9*fy*(d-5)), as_min)
             s = min(d/2, 30.0)
             
-            resumen = (f"CALCULO MORALES\nAs: {As_req:.2f} cm2\nEstribos: c/ {s:.1f} cm")
+            resumen = f"CALCULO ESTRUCTURAL\nAs: {As_req:.2f} cm2\nEstribos zona central: c/ {s:.1f} cm"
             bot.reply_to(message, resumen)
             
             ruta = generar_grafico_viga(b, h, As_req, 0, s)
-            with open(ruta, 'rb') as f: bot.send_photo(message.chat.id, f)
+            with open(ruta, 'rb') as f:
+                bot.send_photo(message.chat.id, f)
         else:
-            bot.reply_to(message, "Formato: [b] [h] [f'c] [fy] [Mu] [Vu]")
+            bot.reply_to(message, "Formato incorrecto. Envíalo así: [b] [h] [f'c] [fy] [Mu] [Vu]")
     except Exception as e:
-        bot.reply_to(message, f"Error: {e}")
+        bot.reply_to(message, f"Error en el cálculo: {e}")
 
 if __name__ == '__main__':
     bot.polling(none_stop=True)
