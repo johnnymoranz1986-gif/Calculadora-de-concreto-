@@ -25,9 +25,9 @@ def run_health_check_server():
 
 threading.Thread(target=run_health_check_server, daemon=True).start()
 
-# --- CONFIGURACIÓN DEL BOT ---
+# --- CONFIGURACIÓN DEL BOT (SIN PARSE MODE PARA EVITAR ERRORES) ---
 TOKEN = os.environ.get("BOT_TOKEN", "8978402989:AAH5pIvfI_76cePT7PY6pziMkVLcoN2kxL8")
-bot = telebot.TeleBot(TOKEN, parse_mode="Markdown")
+bot = telebot.TeleBot(TOKEN, parse_mode=None)
 
 DOSIFICACIONES = {
     '140': {'cemento': 7.01, 'arena': 0.51, 'piedra': 0.64, 'agua': 0.184},
@@ -52,10 +52,10 @@ def generar_grafico_viga(b, h, As, As_comp, s_estribo):
     ax1.add_patch(viga_rect)
     ax1.add_patch(estribo_rect)
 
-    ax1.scatter([b/4, b/2, 3*b/4], [recubrimiento, recubrimiento, recubrimiento], color='red', s=80, zorder=5, label=f"Traccion As: {As:.2f}cm²")
+    ax1.scatter([b/4, b/2, 3*b/4], [recubrimiento, recubrimiento, recubrimiento], color='red', s=80, zorder=5, label=f"Traccion As: {As:.2f}cm2")
     
     if As_comp > 0:
-        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='green', s=80, zorder=5, label=f"Compresion As': {As_comp:.2f}cm²")
+        ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='green', s=80, zorder=5, label=f"Compresion As': {As_comp:.2f}cm2")
     else:
         ax1.scatter([b/3, 2*b/3], [h-recubrimiento, h-recubrimiento], color='purple', s=50, zorder=5, label="Acero Montaje")
 
@@ -95,15 +95,15 @@ def mostrar_menu(message):
     markup = InlineKeyboardMarkup()
     markup.row_width = 1
     markup.add(
-        InlineKeyboardButton("📐 Diseño de Viga Detallado (RNE E.060)", callback_data="modo_viga"),
-        InlineKeyboardButton("📦 Cubicación de Concreto", callback_data="modo_concreto")
+        InlineKeyboardButton("Diseno de Viga Detallado (RNE E.060)", callback_data="modo_viga"),
+        InlineKeyboardButton("Cubicacion de Concreto", callback_data="modo_concreto")
     )
     msg = (
-        "🏗️ *SISTEMA DE INGENIERÍA ESTRUCTURAL (RNE PERÚ)*\n\n"
+        "SISTEMA DE INGENIERIA ESTRUCTURAL (RNE PERU)\n\n"
         "• Para Viga (6 datos):\n"
-        "`30 60 210 4200 20 12`\n\n"
+        "30 60 210 4200 20 12\n\n"
         "• Para Concreto (4 o 5 datos):\n"
-        "`0.30 0.40 3.50 4 5`"
+        "0.30 0.40 3.50 4 5"
     )
     bot.reply_to(message, msg)
 
@@ -112,7 +112,7 @@ def callback_listener(call):
     chat_id = call.message.chat.id
     if call.data == "modo_viga":
         user_state[chat_id] = {'modo': 'viga'}
-        bot.send_message(chat_id, "📐 Envíe los 6 valores para la viga:\n`[b] [h] [f'c] [fy] [Mu] [Vu]`")
+        bot.send_message(chat_id, "Envie los 6 valores para la viga:\n[b] [h] [f'c] [fy] [Mu] [Vu]")
     elif call.data == "modo_concreto":
         markup = InlineKeyboardMarkup(row_width=2)
         for r in ['140', '175', '210', '280', '350', '450']:
@@ -121,7 +121,7 @@ def callback_listener(call):
     elif call.data.startswith("fc_"):
         fc = call.data.split("_")[1]
         user_state[chat_id] = {'modo': 'concreto', 'fc': fc}
-        bot.send_message(chat_id, f"✅ `f'c = {fc}` seleccionado. Envía dimensiones: `[Ancho] [Largo] [Altura] [Cant] [%Desp]`")
+        bot.send_message(chat_id, f"f'c = {fc} seleccionado. Envia dimensiones: [Ancho] [Largo] [Altura] [Cant] [%Desp]")
 
 @bot.message_handler(func=lambda message: True)
 def procesar_mensajes(message):
@@ -140,7 +140,7 @@ def procesar_mensajes(message):
 
             beta1 = 0.85 if fc <= 280 else max(0.65, 0.85 - 0.05 * (fc - 280) / 70.0)
 
-            # --- FÓRMULAS ACERO MÍNIMO ---
+            # Acero mínimo
             as_min1 = (0.7 * math.sqrt(fc) / fy) * b * d
             as_min2 = (14.0 / fy) * b * d
             as_min = max(as_min1, as_min2)
@@ -158,7 +158,7 @@ def procesar_mensajes(message):
                 tipo_viga = "SIMPLEMENTE REFORZADA"
                 term = 1.0 - (2.0 * Mu_kgcm) / (phi_flex * b * (d**2) * 0.85 * fc)
                 if term < 0:
-                    bot.reply_to(message, "❌ Error: Momento actuante excede la capacidad máxima.")
+                    bot.reply_to(message, "Error: Momento actuante excede la capacidad maxima.")
                     return
                 As_calc = (0.85 * fc * b * d / fy) * (1.0 - math.sqrt(term))
                 As_req = max(As_calc, as_min)
@@ -172,64 +172,64 @@ def procesar_mensajes(message):
                 As_req = As1 + As2
                 As_comp = As2
 
-            # --- FÓRMULAS CORTE Y ESPACIAMIENTO ---
+            # Corte
             Vc = 0.53 * math.sqrt(fc) * b * d
             phi_Vc_tn = (phi_corte * Vc) / 1000.0
             Vu_kg = Vu_tn * 1000.0
 
             if Vu_tn <= 0.5 * phi_Vc_tn:
-                corte_estado = "Vu <= 0.5*φ*Vc (Mínimo constructivo)"
+                corte_estado = "Vu <= 0.5*phi*Vc (Minimo constructivo)"
                 s_estribo = 22.0
                 formula_s = "s = 22.0 cm (Fijo por norma)"
             elif Vu_tn <= phi_Vc_tn:
-                corte_estado = "0.5*φ*Vc < Vu <= φ*Vc"
+                corte_estado = "0.5*phi*Vc < Vu <= phi*Vc"
                 s_estribo = min(d / 2.0, 30.0)
                 formula_s = f"s = min(d/2, 30) = min({d/2:.1f}, 30)"
             else:
-                corte_estado = "Vu > φ*Vc (Requiere cálculo por corte)"
+                corte_estado = "Vu > phi*Vc (Requiere calculo por corte)"
                 Vs_req = (Vu_kg - (phi_corte * Vc)) / phi_corte
                 Av = 2 * 0.71
                 s_calc = (Av * fy * d) / Vs_req
                 s_estribo = min(s_calc, d / 2.0, 30.0)
                 formula_s = f"s = (Av * fy * d) / Vs = ({Av} * {fy} * {d}) / {Vs_req:.1f} = {s_calc:.1f} cm"
 
-            # --- INFORME CON FÓRMULAS Y PASOS DETALLADOS ---
+            # INFORME EN TEXTO PLANO ORDENADO
             informe = (
-                "📐 *MEMORIA DE CÁLCULO Y FÓRMULAS (E.060)*\n"
-                "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+                "MEMORIA DE CALCULO Y FORMULAS (RNE E.060)\n"
+                "============================================\n\n"
                 
-                "🔹 *1. GEOMETRÍA Y MATERIALES*\n"
-                f"• Peralte efectivo ($d$): `h - rec` = `{h} - 6 = {d:.1f} cm`\n"
-                f"• Factor $\\beta_1$: `{beta1:.2f}`\n\n"
+                "1. GEOMETRIA Y MATERIALES\n"
+                f"• Peralte efectivo (d): h - rec = {h} - 6 = {d:.1f} cm\n"
+                f"• Factor beta1: {beta1:.2f}\n\n"
                 
-                "🔹 *2. CÁLCULO DE FLEXIÓN*\n"
-                f"• Acero Mínimo ($As_{{min}}$):\n"
-                f"  `max((0.7*√f'c/fy)*b*d, (14/fy)*b*d)`\n"
-                f"  = `max({as_min1:.2f}, {as_min2:.2f})` = *{as_min:.2f} cm²*\n"
-                f"• Comportamiento: *{tipo_viga}*\n"
-                f"• Momento Máximo Simp. ($Mu_{{max}}$): `{Mu_max_simp:.2f} tn·m`\n\n"
+                "2. CALCULO DE FLEXION\n"
+                "• Acero Minimo (As_min):\n"
+                "  max((0.7*sqrt(f'c)/fy)*b*d, (14/fy)*b*d)\n"
+                f"  = max({as_min1:.2f}, {as_min2:.2f}) = {as_min:.2f} cm2\n"
+                f"• Comportamiento: {tipo_viga}\n"
+                f"• Momento Maximo Simp. (Mu_max): {Mu_max_simp:.2f} tn·m\n\n"
                 
-                "🎯 *RESULTADOS CRÍTICOS DE DISEÑO:*\n"
-                "┌────────────────────────────────────────┐\n"
-                f"│ • Acero Tracción (As)  : {As_req:6.2f} cm²   │\n" +
-                (f"│ • Acero Compresión (As'): {As_comp:6.2f} cm²   │\n" if As_comp > 0 else "") +
-                f"│ • Estribos (Zona Cent.): c/ {s_estribo:4.1f} cm    │\n" +
-                "└────────────────────────────────────────┘\n\n"
+                "--------------------------------------------\n"
+                "RESULTADOS CRITICOS DE DISENO:\n"
+                f"-> Acero Traccion (As)   : {As_req:.2f} cm2\n" +
+                (f"-> Acero Compresion (As'): {As_comp:.2f} cm2\n" if As_comp > 0 else "") +
+                f"-> Estribos (Zona Cent.) : c/ {s_estribo:.1f} cm\n"
+                "--------------------------------------------\n\n"
                 
-                "🔹 *3. CÁLCULO Y ESPACIAMIENTO POR CORTE*\n"
-                f"• Concreto ($\\phi V_c$): `0.85 * (0.53 * √f'c * b * d) / 1000`\n"
-                f"  = *{phi_Vc_tn:.2f} tn* (vs $Vu$ = {Vu_tn:.2f} tn)\n"
-                f"• Condición: *{corte_estado}*\n"
-                f"• Aplicación de Fórmula:\n"
-                f"  `{formula_s}`\n"
-                f"  -> Rige final: *s = {s_estribo:.1f} cm*"
+                "3. CALCULO Y ESPACIAMIENTO POR CORTE\n"
+                "• Concreto (phi*Vc): 0.85 * (0.53 * sqrt(f'c) * b * d) / 1000\n"
+                f"  = {phi_Vc_tn:.2f} tn (vs Vu = {Vu_tn:.2f} tn)\n"
+                f"• Condicion: {corte_estado}\n"
+                "• Aplicacion de Formula:\n"
+                f"  {formula_s}\n"
+                f"  -> Rige final: s = {s_estribo:.1f} cm"
             )
             bot.reply_to(message, informe)
 
             # Enviar gráfico
             ruta_img = generar_grafico_viga(b, h, As_req, As_comp, s_estribo)
             with open(ruta_img, 'rb') as foto:
-                bot.send_photo(chat_id, foto, caption="📊 *Plano esquemático y distribución de estribos según RNE E.060*")
+                bot.send_photo(chat_id, foto, caption="Plano esquematico y distribucion de estribos segun RNE E.060")
 
         elif len(valores) in [4, 5]:
             b, l, h, cant = valores[0], valores[1], valores[2], int(valores[3])
@@ -240,27 +240,27 @@ def procesar_mensajes(message):
             vol_tot = vol_neto * (1 + desp_pct / 100.0)
 
             resumen = (
-                f"📦 *CÚBICA Y FÓRMULAS DE CONCRETO (f'c = {fc})*\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"• Fórmula Volumen Neto: `Ancho * Largo * Altura * Cantidad`\n"
-                f"  = `{b} * {l} * {h} * {cant}` = `{vol_neto:.2f} m³`\n"
-                f"• Volumen Total (+{desp_pct:.1f}% des.): `{vol_neto} * (1 + {desp_pct}/100)` = *{vol_tot:.2f} m³*\n\n"
-                f"🎯 *MATERIALES REQUERIDOS:*\n"
-                "┌────────────────────────────────────────┐\n"
-                f"│ • Cemento : {vol_tot * dosi['cemento']:6.1f} bolsas       │\n"
-                f"│ • Arena   : {vol_tot * dosi['arena']:6.2f} m³          │\n"
-                f"│ • Piedra  : {vol_tot * dosi['piedra']:6.2f} m³          │\n"
-                f"│ • Agua    : {vol_tot * dosi['agua'] * 1000:6.0f} Litros       │\n"
-                "└────────────────────────────────────────┘"
+                f"CUBICA Y FORMULAS DE CONCRETO (fc = {fc})\n"
+                "============================================\n"
+                "• Formula Volumen Neto: Ancho * Largo * Altura * Cantidad\n"
+                f"  = {b} * {l} * {h} * {cant} = {vol_neto:.2f} m3\n"
+                f"• Volumen Total (+{desp_pct:.1f}% des.): {vol_neto} * (1 + {desp_pct}/100) = {vol_tot:.2f} m3\n\n"
+                "--------------------------------------------\n"
+                "MATERIALES REQUERIDOS:\n"
+                f"-> Cemento : {vol_tot * dosi['cemento']:.1f} bolsas\n"
+                f"-> Arena   : {vol_tot * dosi['arena']:.2f} m3\n"
+                f"-> Piedra  : {vol_tot * dosi['piedra']:.2f} m3\n"
+                f"-> Agua    : {vol_tot * dosi['agua'] * 1000:.0f} Litros\n"
+                "--------------------------------------------"
             )
             bot.reply_to(message, resumen)
         else:
-            bot.reply_to(message, "⚠️ Formato incorrecto. Envíe 6 valores para viga o 4-5 para concreto.")
+            bot.reply_to(message, "Formato incorrecto. Envie 6 valores para viga o 4-5 para concreto.")
     except Exception as err:
-        bot.reply_to(message, f"⚠️ Error de cálculo: {err}")
+        bot.reply_to(message, f"Error de calculo: {err}")
 
 if __name__ == '__main__':
-    print("Iniciando bot con fórmulas explícitas...")
+    print("Iniciando bot sin errores de entidades Markdown...")
     while True:
         try:
             bot.polling(none_stop=True, interval=1, timeout=20)
